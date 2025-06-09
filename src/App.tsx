@@ -18,13 +18,10 @@ function App() {
   return (
     <AuthProvider>
       <Router>
-        <div className="App">          {/* Navbar */}
+        <div className="App">
+          {/* Navbar */}
           <nav className="bg-white shadow mb-4">
-            <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <span className="text-indigo-600 font-bold text-lg">Rumah Kita</span>
-              </div>
-            </div>
+            {/* Navbar intentionally left empty, branding and links handled elsewhere */}
           </nav>
           {/* End Navbar */}
           <Routes>
@@ -34,7 +31,8 @@ function App() {
               <PrivateRoute>
                 <Dashboard />
               </PrivateRoute>
-            } />            <Route path="/dashboard" element={
+            } />
+            <Route path="/dashboard" element={
               <PrivateRoute>
                 <HomeSetup />
               </PrivateRoute>

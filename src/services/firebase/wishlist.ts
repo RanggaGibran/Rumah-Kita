@@ -5,6 +5,7 @@ import {
   getDocs, 
   updateDoc, 
   deleteDoc, 
+  deleteField,
   query, 
   where, 
   orderBy, 
@@ -36,12 +37,27 @@ export const createWishlistItem = async (
       updatedAt: new Date(),
     };
 
-    const itemRef = doc(firestore, "wishlist", itemData.id);
-    await setDoc(itemRef, {
-      ...itemData,
+    // Prepare data for Firestore, excluding undefined values
+    const firestoreData: any = {
+      id: itemData.id,
+      homeId: itemData.homeId,
+      title: itemData.title,
+      completed: itemData.completed,
+      createdBy: itemData.createdBy,
       createdAt: Timestamp.fromDate(itemData.createdAt),
       updatedAt: Timestamp.fromDate(itemData.updatedAt),
-    });
+    };
+
+    // Only include optional fields if they have values
+    if (description && description.trim()) {
+      firestoreData.description = description.trim();
+    }
+    if (url && url.trim()) {
+      firestoreData.url = url.trim();
+    }
+
+    const itemRef = doc(firestore, "wishlist", itemData.id);
+    await setDoc(itemRef, firestoreData);
 
     return { item: itemData, error: null };
   } catch (error: any) {
@@ -82,9 +98,16 @@ export const updateWishlistItem = async (itemId: string, updates: Partial<Wishli
   try {
     const itemRef = doc(firestore, "wishlist", itemId);
     const updateData: any = {
-      ...updates,
       updatedAt: Timestamp.fromDate(new Date()),
     };
+
+    // Process each update field, excluding undefined values
+    Object.keys(updates).forEach(key => {
+      const value = updates[key as keyof WishlistItem];
+      if (value !== undefined) {
+        updateData[key] = value;
+      }
+    });
 
     // Jika item di-complete, tambahkan completedAt timestamp
     if (updates.completed === true && !updates.completedAt) {
@@ -97,12 +120,10 @@ export const updateWishlistItem = async (itemId: string, updates: Partial<Wishli
     }
     if (updates.completedAt && updates.completedAt instanceof Date) {
       updateData.completedAt = Timestamp.fromDate(updates.completedAt);
-    }
-
-    // Jika item di-uncomplete, hapus completedAt dan completedBy
+    }    // Jika item di-uncomplete, hapus completedAt dan completedBy dengan deleteField
     if (updates.completed === false) {
-      updateData.completedAt = undefined;
-      updateData.completedBy = undefined;
+      updateData.completedAt = deleteField();
+      updateData.completedBy = deleteField();
     }
     
     await updateDoc(itemRef, updateData);
