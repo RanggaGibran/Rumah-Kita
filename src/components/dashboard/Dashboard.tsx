@@ -9,8 +9,10 @@ import Wishlist from '../wishlist/Wishlist';
 import Chat from '../chat/Chat';
 import VideoCall from '../call/VideoCall';
 import HomeSetup from '../home/HomeSetup';
+import { useHomeRedirect } from '../../hooks/useHomeRedirect';
 
 const Dashboard: React.FC = () => {
+  useHomeRedirect();
   const { homeId } = useParams<{ homeId: string }>();
   const [home, setHome] = useState<Home | null>(null);
   const [loading, setLoading] = useState(true);
