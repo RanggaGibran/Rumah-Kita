@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { createHome, joinHomeByInviteCode, getUserHomes } from '../../services/firebase/home';
+import { createHome, joinHomeByInviteCode, getUserHomes, leaveHome, deleteHome, regenerateInviteCode } from '../../services/firebase/home';
 import { Home } from '../../types/user';
 
 const HomeSetup: React.FC = () => {
@@ -11,6 +11,11 @@ const HomeSetup: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showConfirmDialog, setShowConfirmDialog] = useState<{
+    type: 'leave' | 'delete' | 'regenerate';
+    homeId: string;
+    homeName: string;
+  } | null>(null);
   const { currentUser } = useAuth();
   const navigate = useNavigate();
 
@@ -90,6 +95,152 @@ const HomeSetup: React.FC = () => {
     }
   };
 
+  const handleLeaveHome = async (homeId: string) => {
+    if (!currentUser) return;
+    
+    try {
+      setLoading(true);
+      setError('');
+      
+      const { success, error } = await leaveHome(currentUser.uid, homeId);
+      
+      if (error) {
+        setError(error);
+        return;
+      }
+      
+      if (success) {
+        setSuccess('Berhasil keluar dari rumah');
+        fetchUserHomes();
+      }
+    } catch (err: any) {
+      setError('Gagal keluar dari rumah: ' + err.message);
+    } finally {
+      setLoading(false);
+      setShowConfirmDialog(null);
+    }
+  };
+
+  const handleDeleteHome = async (homeId: string) => {
+    if (!currentUser) return;
+    
+    try {
+      setLoading(true);
+      setError('');
+      
+      const { success, error } = await deleteHome(currentUser.uid, homeId);
+      
+      if (error) {
+        setError(error);
+        return;
+      }
+      
+      if (success) {
+        setSuccess('Rumah berhasil dihapus');
+        fetchUserHomes();
+      }
+    } catch (err: any) {
+      setError('Gagal menghapus rumah: ' + err.message);
+    } finally {
+      setLoading(false);
+      setShowConfirmDialog(null);
+    }
+  };
+
+  const handleRegenerateCode = async (homeId: string) => {
+    if (!currentUser) return;
+    
+    try {
+      setLoading(true);
+      setError('');
+      
+      const { success, error, inviteCode: newCode } = await regenerateInviteCode(currentUser.uid, homeId);
+      
+      if (error) {
+        setError(error);
+        return;
+      }
+      
+      if (success && newCode) {
+        setSuccess(`Kode undangan baru berhasil dibuat: ${newCode}`);
+        fetchUserHomes();
+      }
+    } catch (err: any) {
+      setError('Gagal membuat kode undangan baru: ' + err.message);
+    } finally {
+      setLoading(false);
+      setShowConfirmDialog(null);
+    }
+  };
+
+  const ConfirmDialog = () => {
+    if (!showConfirmDialog) return null;
+
+    const { type, homeId, homeName } = showConfirmDialog;
+    
+    const getDialogContent = () => {
+      switch (type) {
+        case 'leave':
+          return {
+            title: 'Keluar dari Rumah',
+            message: `Apakah Anda yakin ingin keluar dari rumah "${homeName}"?`,
+            confirmText: 'Keluar',
+            confirmAction: () => handleLeaveHome(homeId),
+            confirmClass: 'bg-red-600 hover:bg-red-700'
+          };
+        case 'delete':
+          return {
+            title: 'Hapus Rumah',
+            message: `Apakah Anda yakin ingin menghapus rumah "${homeName}"? Tindakan ini tidak dapat dibatalkan.`,
+            confirmText: 'Hapus',
+            confirmAction: () => handleDeleteHome(homeId),
+            confirmClass: 'bg-red-600 hover:bg-red-700'
+          };
+        case 'regenerate':
+          return {
+            title: 'Buat Kode Undangan Baru',
+            message: `Apakah Anda yakin ingin membuat kode undangan baru untuk rumah "${homeName}"? Kode lama akan tidak berlaku lagi.`,
+            confirmText: 'Buat Baru',
+            confirmAction: () => handleRegenerateCode(homeId),
+            confirmClass: 'bg-yellow-600 hover:bg-yellow-700'
+          };
+        default:
+          return null;
+      }
+    };
+
+    const dialogContent = getDialogContent();
+    if (!dialogContent) return null;
+
+    return (
+      <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div className="mt-3 text-center">
+            <h3 className="text-lg font-medium text-gray-900">{dialogContent.title}</h3>
+            <div className="mt-2 px-7 py-3">
+              <p className="text-sm text-gray-500">{dialogContent.message}</p>
+            </div>
+            <div className="flex justify-center space-x-4 px-4 py-3">
+              <button
+                onClick={() => setShowConfirmDialog(null)}
+                className="px-4 py-2 bg-gray-300 text-gray-700 text-base font-medium rounded-md shadow-sm hover:bg-gray-400"
+              >
+                Batal
+              </button>
+              <button
+                onClick={dialogContent.confirmAction}
+                disabled={loading}
+                className={`px-4 py-2 text-white text-base font-medium rounded-md shadow-sm ${dialogContent.confirmClass}`}
+              >
+                {loading ? 'Memproses...' : dialogContent.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (!currentUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -122,25 +273,68 @@ const HomeSetup: React.FC = () => {
             </div>
             <div className="border-t border-gray-200">
               <ul className="divide-y divide-gray-200">
-                {homes.map((home) => (
-                  <li key={home.id}>
+                {homes.map((home) => (                  <li key={home.id}>
                     <div className="px-4 py-4 sm:px-6">
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium text-indigo-600 truncate">
-                          {home.name}
-                        </p>
-                        <button
-                          onClick={() => navigate(`/dashboard/${home.id}`)}
-                          className="ml-2 px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800"
-                        >
-                          Masuk
-                        </button>
-                      </div>
-                      <div className="mt-2 sm:flex sm:justify-between">
-                        <div className="sm:flex">
-                          <p className="flex items-center text-sm text-gray-500">
-                            Kode: {home.inviteCode}
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-indigo-600 truncate">
+                            {home.name}
                           </p>
+                          <div className="mt-2 flex items-center text-sm text-gray-500">
+                            <span>Kode: {home.inviteCode}</span>
+                            {home.createdBy === currentUser?.uid && (
+                              <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full">
+                                Owner
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400 mt-1">
+                            {home.members.length} anggota
+                          </p>
+                        </div>
+                        <div className="flex flex-col space-y-2 ml-4">
+                          <button
+                            onClick={() => navigate(`/dashboard/${home.id}`)}
+                            className="px-3 py-1 rounded text-xs font-medium bg-indigo-100 text-indigo-800 hover:bg-indigo-200"
+                          >
+                            Masuk
+                          </button>
+                          
+                          {home.createdBy === currentUser?.uid ? (
+                            <>
+                              <button
+                                onClick={() => setShowConfirmDialog({
+                                  type: 'regenerate',
+                                  homeId: home.id,
+                                  homeName: home.name
+                                })}
+                                className="px-3 py-1 rounded text-xs font-medium bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+                              >
+                                Kode Baru
+                              </button>
+                              <button
+                                onClick={() => setShowConfirmDialog({
+                                  type: 'delete',
+                                  homeId: home.id,
+                                  homeName: home.name
+                                })}
+                                className="px-3 py-1 rounded text-xs font-medium bg-red-100 text-red-800 hover:bg-red-200"
+                              >
+                                Hapus
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => setShowConfirmDialog({
+                                type: 'leave',
+                                homeId: home.id,
+                                homeName: home.name
+                              })}
+                              className="px-3 py-1 rounded text-xs font-medium bg-red-100 text-red-800 hover:bg-red-200"
+                            >
+                              Keluar
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -229,6 +423,8 @@ const HomeSetup: React.FC = () => {
             </div>
           </div>
         </div>
+
+        <ConfirmDialog />
       </div>
     </div>
   );

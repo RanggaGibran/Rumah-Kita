@@ -7,7 +7,9 @@ import {
   query, 
   where, 
   updateDoc, 
-  arrayUnion 
+  arrayUnion,
+  arrayRemove,
+  deleteDoc 
 } from "firebase/firestore";
 import { firestore } from "./config";
 import { v4 as uuidv4 } from 'uuid';
@@ -142,5 +144,156 @@ export const getUserHomes = async (userId: string) => {
     return { homes, error: null };
   } catch (error: any) {
     return { homes: [], error: error.message };
+  }
+};
+
+// Keluar dari rumah (leave home)
+export const leaveHome = async (userId: string, homeId: string) => {
+  try {
+    // Mendapatkan data rumah terlebih dahulu
+    const { home, error } = await getHomeById(homeId);
+    if (error || !home) {
+      return { success: false, error: error || "Rumah tidak ditemukan" };
+    }
+
+    // Cek apakah user adalah anggota
+    if (!home.members.includes(userId)) {
+      return { success: false, error: "Anda bukan anggota rumah ini" };
+    }
+
+    // Cek apakah user adalah creator dan masih ada anggota lain
+    if (home.createdBy === userId && home.members.length > 1) {
+      return { 
+        success: false, 
+        error: "Sebagai pembuat rumah, Anda tidak dapat keluar jika masih ada anggota lain. Hapus rumah atau transfer kepemilikan terlebih dahulu." 
+      };
+    }
+
+    // Jika user adalah creator dan satu-satunya anggota, hapus rumah
+    if (home.createdBy === userId && home.members.length === 1) {
+      return await deleteHome(userId, homeId);
+    }
+
+    // Remove user dari members rumah
+    const homeRef = doc(firestore, "homes", homeId);
+    await updateDoc(homeRef, {
+      members: arrayRemove(userId)
+    });
+
+    // Remove rumah dari daftar homes user
+    const userRef = doc(firestore, "users", userId);
+    await updateDoc(userRef, {
+      homes: arrayRemove(homeId)
+    });
+
+    return { success: true, error: null };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Hapus rumah (hanya creator yang bisa menghapus)
+export const deleteHome = async (userId: string, homeId: string) => {
+  try {
+    // Mendapatkan data rumah terlebih dahulu
+    const { home, error } = await getHomeById(homeId);
+    if (error || !home) {
+      return { success: false, error: error || "Rumah tidak ditemukan" };
+    }
+
+    // Cek apakah user adalah creator
+    if (home.createdBy !== userId) {
+      return { success: false, error: "Hanya pembuat rumah yang dapat menghapus rumah" };
+    }
+
+    // Remove rumah dari semua anggota
+    for (const memberId of home.members) {
+      const userRef = doc(firestore, "users", memberId);
+      await updateDoc(userRef, {
+        homes: arrayRemove(homeId)
+      });
+    }
+
+    // Hapus semua data terkait rumah (notes, wishlist, messages)
+    // TODO: Implement batch delete untuk semua sub-collections
+    // const notesQuery = query(collection(firestore, "notes"), where("homeId", "==", homeId));
+    // const wishlistQuery = query(collection(firestore, "wishlist"), where("homeId", "==", homeId));
+    // const messagesQuery = query(collection(firestore, "messages"), where("homeId", "==", homeId));
+
+    // Hapus dokumen rumah
+    const homeRef = doc(firestore, "homes", homeId);
+    await deleteDoc(homeRef);
+
+    return { success: true, error: null };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Generate kode undangan baru
+export const regenerateInviteCode = async (userId: string, homeId: string) => {
+  try {
+    // Mendapatkan data rumah terlebih dahulu
+    const { home, error } = await getHomeById(homeId);
+    if (error || !home) {
+      return { success: false, error: error || "Rumah tidak ditemukan", inviteCode: null };
+    }
+
+    // Cek apakah user adalah creator
+    if (home.createdBy !== userId) {
+      return { success: false, error: "Hanya pembuat rumah yang dapat mengubah kode undangan", inviteCode: null };
+    }
+
+    // Generate kode undangan baru
+    const generateCode = () => {
+      const segments = [];
+      for (let i = 0; i < 3; i++) {
+        segments.push(uuidv4().substring(0, 3).toUpperCase());
+      }
+      return segments.join("-");
+    };
+
+    const newInviteCode = generateCode();
+
+    // Update kode undangan
+    const homeRef = doc(firestore, "homes", homeId);
+    await updateDoc(homeRef, {
+      inviteCode: newInviteCode
+    });
+
+    return { success: true, error: null, inviteCode: newInviteCode };
+  } catch (error: any) {
+    return { success: false, error: error.message, inviteCode: null };
+  }
+};
+
+// Transfer kepemilikan rumah
+export const transferHomeOwnership = async (currentOwnerId: string, newOwnerId: string, homeId: string) => {
+  try {
+    // Mendapatkan data rumah terlebih dahulu
+    const { home, error } = await getHomeById(homeId);
+    if (error || !home) {
+      return { success: false, error: error || "Rumah tidak ditemukan" };
+    }
+
+    // Cek apakah user adalah creator saat ini
+    if (home.createdBy !== currentOwnerId) {
+      return { success: false, error: "Hanya pembuat rumah yang dapat transfer kepemilikan" };
+    }
+
+    // Cek apakah new owner adalah anggota rumah
+    if (!home.members.includes(newOwnerId)) {
+      return { success: false, error: "Pemilik baru harus menjadi anggota rumah" };
+    }
+
+    // Update pembuat rumah
+    const homeRef = doc(firestore, "homes", homeId);
+    await updateDoc(homeRef, {
+      createdBy: newOwnerId
+    });
+
+    return { success: true, error: null };
+  } catch (error: any) {
+    return { success: false, error: error.message };
   }
 };
