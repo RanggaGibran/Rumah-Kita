@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { createHome, joinHomeByInviteCode, getUserHomes, leaveHome, deleteHome, regenerateInviteCode } from '../../services/firebase/home';
+import { 
+  createHome, 
+  joinHomeByInviteCode, 
+  getUserHomes, 
+  leaveHome, 
+  deleteHome, 
+  regenerateInviteCode,
+  getHomeStatistics 
+} from '../../services/firebase/home';
 import { Home } from '../../types/user';
 
 const HomeSetup: React.FC = () => {
@@ -16,9 +24,9 @@ const HomeSetup: React.FC = () => {
     homeId: string;
     homeName: string;
   } | null>(null);
+  const [homeStats, setHomeStats] = useState<{[key: string]: any}>({});
   const { currentUser } = useAuth();
   const navigate = useNavigate();
-
   const fetchUserHomes = async () => {
     if (currentUser) {
       setLoading(true);
@@ -27,6 +35,16 @@ const HomeSetup: React.FC = () => {
         setError(error);
       } else {
         setHomes(homes);
+        
+        // Fetch statistics for each home
+        const stats: {[key: string]: any} = {};
+        for (const home of homes) {
+          const { statistics } = await getHomeStatistics(home.id);
+          if (statistics) {
+            stats[home.id] = statistics;
+          }
+        }
+        setHomeStats(stats);
         
         // Jika user sudah punya rumah, arahkan ke rumah pertama
         if (homes.length > 0) {
@@ -270,76 +288,87 @@ const HomeSetup: React.FC = () => {
               <h3 className="text-lg leading-6 font-medium text-gray-900">
                 Rumah Anda
               </h3>
-            </div>
-            <div className="border-t border-gray-200">
+            </div>            <div className="border-t border-gray-200">
               <ul className="divide-y divide-gray-200">
-                {homes.map((home) => (                  <li key={home.id}>
-                    <div className="px-4 py-4 sm:px-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-indigo-600 truncate">
-                            {home.name}
-                          </p>
-                          <div className="mt-2 flex items-center text-sm text-gray-500">
-                            <span>Kode: {home.inviteCode}</span>
-                            {home.createdBy === currentUser?.uid && (
-                              <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full">
-                                Owner
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-gray-400 mt-1">
-                            {home.members.length} anggota
-                          </p>
-                        </div>
-                        <div className="flex flex-col space-y-2 ml-4">
-                          <button
-                            onClick={() => navigate(`/dashboard/${home.id}`)}
-                            className="px-3 py-1 rounded text-xs font-medium bg-indigo-100 text-indigo-800 hover:bg-indigo-200"
-                          >
-                            Masuk
-                          </button>
-                          
-                          {home.createdBy === currentUser?.uid ? (
-                            <>
+                {homes.map((home) => {
+                  const stats = homeStats[home.id];
+                  return (
+                    <li key={home.id}>
+                      <div className="px-4 py-4 sm:px-6">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-indigo-600 truncate">
+                              {home.name}
+                            </p>
+                            <div className="mt-2 flex items-center text-sm text-gray-500">
+                              <span>Kode: {home.inviteCode}</span>
+                              {home.createdBy === currentUser?.uid && (
+                                <span className="ml-2 px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full">
+                                  Owner
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-1 text-xs text-gray-400">
+                              <span>{home.members.length} anggota</span>
+                              {stats && (
+                                <>
+                                  <span className="mx-1">•</span>
+                                  <span>{stats.notesCount || 0} catatan</span>
+                                  <span className="mx-1">•</span>
+                                  <span>{stats.wishlistCount || 0} wishlist</span>
+                                  <span className="mx-1">•</span>
+                                  <span>{stats.messagesCount || 0} pesan</span>
+                                </>
+                              )}
+                            </div>
+                          </div>                          <div className="flex flex-col space-y-2 ml-4">
+                            <button
+                              onClick={() => navigate(`/dashboard/${home.id}`)}
+                              className="px-3 py-1 rounded text-xs font-medium bg-indigo-100 text-indigo-800 hover:bg-indigo-200"
+                            >
+                              Masuk
+                            </button>
+                            
+                            {home.createdBy === currentUser?.uid ? (
+                              <>
+                                <button
+                                  onClick={() => setShowConfirmDialog({
+                                    type: 'regenerate',
+                                    homeId: home.id,
+                                    homeName: home.name
+                                  })}
+                                  className="px-3 py-1 rounded text-xs font-medium bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
+                                >
+                                  Kode Baru
+                                </button>
+                                <button
+                                  onClick={() => setShowConfirmDialog({
+                                    type: 'delete',
+                                    homeId: home.id,
+                                    homeName: home.name
+                                  })}
+                                  className="px-3 py-1 rounded text-xs font-medium bg-red-100 text-red-800 hover:bg-red-200"
+                                >
+                                  Hapus
+                                </button>
+                              </>
+                            ) : (
                               <button
                                 onClick={() => setShowConfirmDialog({
-                                  type: 'regenerate',
-                                  homeId: home.id,
-                                  homeName: home.name
-                                })}
-                                className="px-3 py-1 rounded text-xs font-medium bg-yellow-100 text-yellow-800 hover:bg-yellow-200"
-                              >
-                                Kode Baru
-                              </button>
-                              <button
-                                onClick={() => setShowConfirmDialog({
-                                  type: 'delete',
+                                  type: 'leave',
                                   homeId: home.id,
                                   homeName: home.name
                                 })}
                                 className="px-3 py-1 rounded text-xs font-medium bg-red-100 text-red-800 hover:bg-red-200"
                               >
-                                Hapus
+                                Keluar
                               </button>
-                            </>
-                          ) : (
-                            <button
-                              onClick={() => setShowConfirmDialog({
-                                type: 'leave',
-                                homeId: home.id,
-                                homeName: home.name
-                              })}
-                              className="px-3 py-1 rounded text-xs font-medium bg-red-100 text-red-800 hover:bg-red-200"
-                            >
-                              Keluar
-                            </button>
-                          )}
+                            )}                          </div>
                         </div>
                       </div>
-                    </div>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           </div>

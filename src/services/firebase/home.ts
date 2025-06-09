@@ -9,7 +9,8 @@ import {
   updateDoc, 
   arrayUnion,
   arrayRemove,
-  deleteDoc 
+  deleteDoc,
+  writeBatch 
 } from "firebase/firestore";
 import { firestore } from "./config";
 import { v4 as uuidv4 } from 'uuid';
@@ -206,23 +207,44 @@ export const deleteHome = async (userId: string, homeId: string) => {
       return { success: false, error: "Hanya pembuat rumah yang dapat menghapus rumah" };
     }
 
+    // Create a batch for atomic operations
+    const batch = writeBatch(firestore);
+
     // Remove rumah dari semua anggota
     for (const memberId of home.members) {
       const userRef = doc(firestore, "users", memberId);
-      await updateDoc(userRef, {
+      batch.update(userRef, {
         homes: arrayRemove(homeId)
       });
     }
 
-    // Hapus semua data terkait rumah (notes, wishlist, messages)
-    // TODO: Implement batch delete untuk semua sub-collections
-    // const notesQuery = query(collection(firestore, "notes"), where("homeId", "==", homeId));
-    // const wishlistQuery = query(collection(firestore, "wishlist"), where("homeId", "==", homeId));
-    // const messagesQuery = query(collection(firestore, "messages"), where("homeId", "==", homeId));
+    // Get and delete all notes in this home
+    const notesQuery = query(collection(firestore, "notes"), where("homeId", "==", homeId));
+    const notesSnapshot = await getDocs(notesQuery);
+    notesSnapshot.forEach((noteDoc) => {
+      batch.delete(noteDoc.ref);
+    });
 
-    // Hapus dokumen rumah
+    // Get and delete all wishlist items in this home
+    const wishlistQuery = query(collection(firestore, "wishlist"), where("homeId", "==", homeId));
+    const wishlistSnapshot = await getDocs(wishlistQuery);
+    wishlistSnapshot.forEach((wishlistDoc) => {
+      batch.delete(wishlistDoc.ref);
+    });
+
+    // Get and delete all chat messages in this home
+    const messagesQuery = query(collection(firestore, "messages"), where("homeId", "==", homeId));
+    const messagesSnapshot = await getDocs(messagesQuery);
+    messagesSnapshot.forEach((messageDoc) => {
+      batch.delete(messageDoc.ref);
+    });
+
+    // Delete the home document
     const homeRef = doc(firestore, "homes", homeId);
-    await deleteDoc(homeRef);
+    batch.delete(homeRef);
+
+    // Commit all operations
+    await batch.commit();
 
     return { success: true, error: null };
   } catch (error: any) {
@@ -290,6 +312,90 @@ export const transferHomeOwnership = async (currentOwnerId: string, newOwnerId: 
     const homeRef = doc(firestore, "homes", homeId);
     await updateDoc(homeRef, {
       createdBy: newOwnerId
+    });
+
+    return { success: true, error: null };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+};
+
+// Get home statistics
+export const getHomeStatistics = async (homeId: string) => {
+  try {
+    // Get notes count
+    const notesQuery = query(collection(firestore, "notes"), where("homeId", "==", homeId));
+    const notesSnapshot = await getDocs(notesQuery);
+    const notesCount = notesSnapshot.size;
+
+    // Get wishlist count
+    const wishlistQuery = query(collection(firestore, "wishlist"), where("homeId", "==", homeId));
+    const wishlistSnapshot = await getDocs(wishlistQuery);
+    const wishlistCount = wishlistSnapshot.size;
+
+    // Get completed wishlist count
+    const completedWishlistCount = wishlistSnapshot.docs.filter(doc => 
+      doc.data().completed === true
+    ).length;
+
+    // Get messages count
+    const messagesQuery = query(collection(firestore, "messages"), where("homeId", "==", homeId));
+    const messagesSnapshot = await getDocs(messagesQuery);
+    const messagesCount = messagesSnapshot.size;
+
+    return {
+      success: true,
+      statistics: {
+        notesCount,
+        wishlistCount,
+        completedWishlistCount,
+        messagesCount
+      },
+      error: null
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      statistics: null,
+      error: error.message
+    };
+  }
+};
+
+// Remove member from home (owner only)
+export const removeMemberFromHome = async (ownerId: string, memberId: string, homeId: string) => {
+  try {
+    // Mendapatkan data rumah terlebih dahulu
+    const { home, error } = await getHomeById(homeId);
+    if (error || !home) {
+      return { success: false, error: error || "Rumah tidak ditemukan" };
+    }
+
+    // Cek apakah user adalah creator
+    if (home.createdBy !== ownerId) {
+      return { success: false, error: "Hanya pembuat rumah yang dapat mengeluarkan anggota" };
+    }
+
+    // Cek apakah yang akan dikeluarkan bukan owner sendiri
+    if (ownerId === memberId) {
+      return { success: false, error: "Tidak dapat mengeluarkan diri sendiri" };
+    }
+
+    // Cek apakah member adalah anggota rumah
+    if (!home.members.includes(memberId)) {
+      return { success: false, error: "User bukan anggota rumah ini" };
+    }
+
+    // Remove user dari members rumah
+    const homeRef = doc(firestore, "homes", homeId);
+    await updateDoc(homeRef, {
+      members: arrayRemove(memberId)
+    });
+
+    // Remove rumah dari daftar homes user
+    const userRef = doc(firestore, "users", memberId);
+    await updateDoc(userRef, {
+      homes: arrayRemove(homeId)
     });
 
     return { success: true, error: null };
