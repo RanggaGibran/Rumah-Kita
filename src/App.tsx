@@ -1,0 +1,43 @@
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import './App.css';
+
+// Auth Components
+import Login from './components/auth/Login';
+import Register from './components/auth/Register';
+import HomeSetup from './components/home/HomeSetup';
+import Dashboard from './components/dashboard/Dashboard';
+
+// Context Providers
+import { AuthProvider } from './contexts/AuthContext';
+
+// Private Route component untuk proteksi halaman
+import PrivateRoute from './components/auth/PrivateRoute';
+
+function App() {
+  return (
+    <AuthProvider>
+      <Router>
+        <div className="App">
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/dashboard/:homeId" element={
+              <PrivateRoute>
+                <Dashboard />
+              </PrivateRoute>
+            } />
+            <Route path="/dashboard" element={
+              <PrivateRoute>
+                <HomeSetup />
+              </PrivateRoute>
+            } />
+            <Route path="/" element={<Login />} />
+          </Routes>
+        </div>
+      </Router>
+    </AuthProvider>
+  );
+}
+
+export default App;

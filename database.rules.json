@@ -1,0 +1,20 @@
+{
+  "rules": {
+    "signaling": {
+      "$homeId": {
+        ".read": "auth != null",
+        ".write": "auth != null",
+        "messages": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        },
+        "users": {
+          "$userId": {
+            ".read": "auth != null",
+            ".write": "auth != null && auth.uid == $userId"
+          }
+        }
+      }
+    }
+  }
+}
