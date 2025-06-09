@@ -26,12 +26,15 @@ const VideoCall: React.FC<VideoCallProps> = ({ homeId }) => {
   useEffect(() => {
     if (!currentUser || !homeId) return;
 
+    const displayName = userProfile?.displayName || currentUser.displayName || currentUser.email || 'Anonymous User';
+
     webrtcServiceRef.current = new WebRTCService(
       homeId,
       currentUser.uid,
+      displayName, // Pass the display name
       (state) => {
         setCallState(state);
-        setError('');
+        // setError(''); // Removed: Avoid clearing error on every state update.
       }
     );
 
@@ -160,8 +163,9 @@ const VideoCall: React.FC<VideoCallProps> = ({ homeId }) => {
 
       {/* Error Message */}
       {error && (
-        <div className="mx-4 mt-2 p-3 bg-red-100 border border-red-400 text-red-700 text-sm rounded">
-          {error}
+        <div className="mx-4 my-2 p-3 bg-red-100 border border-red-400 text-red-700 text-sm rounded shadow-md" role="alert">
+          <strong className="font-bold">Error:</strong>
+          <span className="block sm:inline"> {error}</span>
         </div>
       )}
 
