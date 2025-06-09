@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { loginWithEmail, loginWithGoogle } from '../../services/firebase/auth';
 import { useAuth } from '../../contexts/AuthContext';
+import { useHomeRedirect } from '../../hooks/useHomeRedirect';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -10,13 +11,8 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { currentUser } = useAuth();
-
-  // Jika user sudah login, redirect ke dashboard
-  React.useEffect(() => {
-    if (currentUser) {
-      navigate('/dashboard');
-    }
-  }, [currentUser, navigate]);
+  // Use custom hook to redirect to home if user is logged in and has homes
+  useHomeRedirect();
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();

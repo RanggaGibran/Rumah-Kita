@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { registerWithEmail, loginWithGoogle } from '../../services/firebase/auth';
 import { useAuth } from '../../contexts/AuthContext';
+import { useHomeRedirect } from '../../hooks/useHomeRedirect';
 
 const Register: React.FC = () => {
   const [email, setEmail] = useState('');

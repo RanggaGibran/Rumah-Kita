@@ -26,8 +26,7 @@ function App() {
               <PrivateRoute>
                 <Dashboard />
               </PrivateRoute>
-            } />
-            <Route path="/dashboard" element={
+            } />            <Route path="/dashboard" element={
               <PrivateRoute>
                 <HomeSetup />
               </PrivateRoute>
