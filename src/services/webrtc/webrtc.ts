@@ -348,7 +348,7 @@ export class WebRTCService {
           type: 'offer',
           from: this.userId,
           to: this.connectedPeerId, 
-          payload: offer.toJSON() // Send as JSON
+          payload: offer // Send as JSON
         });
         console.log("WebRTCService: Offer sent to", this.connectedPeerId);
       }
@@ -398,7 +398,7 @@ export class WebRTCService {
           type: 'answer',
           from: this.userId,
           to: fromId, 
-          payload: answer.toJSON() // Send as JSON
+          payload: answer // Send as JSON
         });
         console.log("WebRTCService: Answer sent to", fromId);
       } else {
