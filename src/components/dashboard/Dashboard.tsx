@@ -8,6 +8,7 @@ import Notes from '../notes/Notes';
 import Wishlist from '../wishlist/Wishlist';
 import Chat from '../chat/Chat';
 import VideoCall from '../call/VideoCall';
+import HomeSetup from '../home/HomeSetup';
 
 const Dashboard: React.FC = () => {
   const { homeId } = useParams<{ homeId: string }>();
@@ -18,7 +19,7 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   
   // Navigation state for different features
-  const [activeTab, setActiveTab] = useState('notes');
+  const [activeTab, setActiveTab] = useState('dashboard');
 
   useEffect(() => {
     const fetchHomeData = async () => {
@@ -178,7 +179,11 @@ const Dashboard: React.FC = () => {
               </p>
             </div>            <div className="bg-white shadow overflow-hidden sm:rounded-lg">
               <div className="p-6">
-                {/* Render component based on active tab */}
+                {activeTab === 'dashboard' && (
+                  <div className="p-6">
+                    <HomeSetup />
+                  </div>
+                )}
                 {activeTab === 'notes' && homeId && <Notes />}
                 {activeTab === 'wishlist' && homeId && <Wishlist homeId={homeId} />}
                 {activeTab === 'chat' && homeId && <Chat homeId={homeId} />}

@@ -37,9 +37,10 @@ function App() {
               </PrivateRoute>
             } />            <Route path="/dashboard" element={
               <PrivateRoute>
-                <HomeSetup />
+                <Dashboard />
               </PrivateRoute>
             } />
+            // Hapus route HomeSetup yang tidak diperlukan
             <Route path="/" element={<Login />} />
           </Routes>
         </div>
