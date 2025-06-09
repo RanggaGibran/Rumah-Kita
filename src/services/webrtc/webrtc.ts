@@ -293,7 +293,7 @@ export class WebRTCService {
             type: 'ice-candidate',
             from: this.userId,
             to: targetId,
-            payload: event.candidate.toJSON() // This one is already correct
+            payload: event.candidate.toJSON() // Corrected: directly use event.candidate.toJSON()
           });
         } else {
           console.warn("WebRTCService: No targetId to send ICE candidate to. This might happen if call was rejected/ended before ICE negotiation completed.");
@@ -348,7 +348,7 @@ export class WebRTCService {
           type: 'offer',
           from: this.userId,
           to: this.connectedPeerId, 
-          payload: new RTCSessionDescription(offer).toJSON() // Wrap with RTCSessionDescription
+          payload: offer // <-- FIX: send offer directly, do not use offer.toJSON()
         });
         console.log("WebRTCService: Offer sent to", this.connectedPeerId);
       }
@@ -398,7 +398,7 @@ export class WebRTCService {
           type: 'answer',
           from: this.userId,
           to: fromId, 
-          payload: new RTCSessionDescription(answer).toJSON() // Wrap with RTCSessionDescription
+          payload: answer // FIX: send answer directly, do not use answer.toJSON()
         });
         console.log("WebRTCService: Answer sent to", fromId);
       } else {

@@ -8,19 +8,16 @@ import Notes from '../notes/Notes';
 import Wishlist from '../wishlist/Wishlist';
 import Chat from '../chat/Chat';
 import VideoCall from '../call/VideoCall';
-import HomeSetup from '../home/HomeSetup';
-import { useHomeRedirect } from '../../hooks/useHomeRedirect';
+import HomeSettings from './HomeSettings';
 
 const Dashboard: React.FC = () => {
-  useHomeRedirect();
   const { homeId } = useParams<{ homeId: string }>();
   const [home, setHome] = useState<Home | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const { currentUser, userProfile } = useAuth();
   const navigate = useNavigate();
-  
-  // Navigation state for different features
+    // Navigation state for different features
   const [activeTab, setActiveTab] = useState('dashboard');
 
   useEffect(() => {
@@ -86,10 +83,9 @@ const Dashboard: React.FC = () => {
             <div className="flex items-center">
               <div className="flex-shrink-0">
                 <h1 className="text-white font-bold">Rumah Kita</h1>
-              </div>
-              <div className="hidden md:block">                <div className="ml-10 flex items-baseline space-x-4">
+              </div>              <div className="hidden md:block">                <div className="ml-10 flex items-baseline space-x-4">
                   <button
-                    className={`$${
+                    className={`${
                       activeTab === 'dashboard'
                         ? 'bg-indigo-700 text-white'
                         : 'text-indigo-200 hover:bg-indigo-500'
@@ -99,7 +95,7 @@ const Dashboard: React.FC = () => {
                     Dashboard
                   </button>
                   <button
-                    className={`$${
+                    className={`${
                       activeTab === 'notes'
                         ? 'bg-indigo-700 text-white'
                         : 'text-indigo-200 hover:bg-indigo-500'
@@ -109,7 +105,7 @@ const Dashboard: React.FC = () => {
                     Notes
                   </button>
                   <button
-                    className={`$${
+                    className={`${
                       activeTab === 'wishlist'
                         ? 'bg-indigo-700 text-white'
                         : 'text-indigo-200 hover:bg-indigo-500'
@@ -119,7 +115,7 @@ const Dashboard: React.FC = () => {
                     Wishlist
                   </button>
                   <button
-                    className={`$${
+                    className={`${
                       activeTab === 'chat'
                         ? 'bg-indigo-700 text-white'
                         : 'text-indigo-200 hover:bg-indigo-500'
@@ -129,7 +125,7 @@ const Dashboard: React.FC = () => {
                     Chat
                   </button>
                   <button
-                    className={`$${
+                    className={`${
                       activeTab === 'call'
                         ? 'bg-indigo-700 text-white'
                         : 'text-indigo-200 hover:bg-indigo-500'
@@ -191,11 +187,8 @@ const Dashboard: React.FC = () => {
               </p>
             </div>            <div className="bg-white shadow overflow-hidden sm:rounded-lg">
               <div className="p-6">
-                {activeTab === 'dashboard' && (
-                  <div className="p-6">
-                    <HomeSetup />
-                  </div>
-                )}
+                {/* Render component based on active tab */}
+                {activeTab === 'dashboard' && home && <HomeSettings home={home} />}
                 {activeTab === 'notes' && homeId && <Notes />}
                 {activeTab === 'wishlist' && homeId && <Wishlist homeId={homeId} />}
                 {activeTab === 'chat' && homeId && <Chat homeId={homeId} />}

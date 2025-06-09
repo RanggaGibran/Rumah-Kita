@@ -1,7 +1,7 @@
 // Firebase configuration
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, connectFirestoreEmulator, enableNetwork, disableNetwork } from "firebase/firestore";
 import { getDatabase, Database } from "firebase/database";
 
 // Your web app's Firebase configuration
@@ -20,6 +20,31 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const firestore = getFirestore(app);
+
+// Configure Firestore to handle connection issues
+const configureFirestore = async () => {
+  try {
+    // Force enable network to reset connection state
+    await enableNetwork(firestore);
+    console.log('Firestore network enabled successfully');
+  } catch (error) {
+    console.warn('Firestore network configuration warning:', error);
+    
+    // If there are persistent connection issues, try to disable and re-enable
+    try {
+      await disableNetwork(firestore);
+      setTimeout(async () => {
+        await enableNetwork(firestore);
+        console.log('Firestore network reset completed');
+      }, 1000);
+    } catch (resetError) {
+      console.error('Firestore network reset failed:', resetError);
+    }
+  }
+};
+
+// Initialize Firestore configuration on module load
+configureFirestore();
 
 // Initialize Realtime Database with proper typing
 const database: Database = (() => {
