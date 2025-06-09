@@ -87,7 +87,17 @@ const Dashboard: React.FC = () => {
               </div>
               <div className="hidden md:block">                <div className="ml-10 flex items-baseline space-x-4">
                   <button
-                    className={`${
+                    className={`$${
+                      activeTab === 'dashboard'
+                        ? 'bg-indigo-700 text-white'
+                        : 'text-indigo-200 hover:bg-indigo-500'
+                    } px-3 py-2 rounded-md text-sm font-medium`}
+                    onClick={() => setActiveTab('dashboard')}
+                  >
+                    Dashboard
+                  </button>
+                  <button
+                    className={`$${
                       activeTab === 'notes'
                         ? 'bg-indigo-700 text-white'
                         : 'text-indigo-200 hover:bg-indigo-500'
@@ -97,7 +107,7 @@ const Dashboard: React.FC = () => {
                     Notes
                   </button>
                   <button
-                    className={`${
+                    className={`$${
                       activeTab === 'wishlist'
                         ? 'bg-indigo-700 text-white'
                         : 'text-indigo-200 hover:bg-indigo-500'
@@ -107,7 +117,7 @@ const Dashboard: React.FC = () => {
                     Wishlist
                   </button>
                   <button
-                    className={`${
+                    className={`$${
                       activeTab === 'chat'
                         ? 'bg-indigo-700 text-white'
                         : 'text-indigo-200 hover:bg-indigo-500'
@@ -117,7 +127,7 @@ const Dashboard: React.FC = () => {
                     Chat
                   </button>
                   <button
-                    className={`${
+                    className={`$${
                       activeTab === 'call'
                         ? 'bg-indigo-700 text-white'
                         : 'text-indigo-200 hover:bg-indigo-500'
