@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { WebRTCService, CallState } from '../../services/webrtc/webrtc';
 import { ChatMessage } from '../../types/user';
@@ -25,6 +25,7 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState<'call' | 'chat'>('call');
+  const [isMobile, setIsMobile] = useState(false);
   
   const webrtcServiceRef = useRef<WebRTCService | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -42,6 +43,17 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  // Detect screen size changes
+  useLayoutEffect(() => {
+    const checkIsMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkIsMobile();
+    window.addEventListener('resize', checkIsMobile);
+    return () => window.removeEventListener('resize', checkIsMobile);
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'chat') {
@@ -231,26 +243,26 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
   if (callState.isReceivingCall) {
     return (
       <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-50 animate-fade-in">
-        <div className="card-modern max-w-md w-full mx-4 p-8 shadow-hard animate-scale-in">
+        <div className="card-modern max-w-md w-full mx-2 sm:mx-4 p-4 sm:p-8 shadow-hard animate-scale-in">
           <div className="text-center">
-            <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-gradient-to-r from-blue-600/20 to-indigo-600/20 border border-blue-500/30 mb-6 shadow-soft">
-              <svg className="h-10 w-10 text-blue-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="mx-auto flex items-center justify-center h-16 w-16 sm:h-20 sm:w-20 rounded-full bg-gradient-to-r from-blue-600/20 to-indigo-600/20 border border-blue-500/30 mb-4 sm:mb-6 shadow-soft">
+              <svg className="h-8 w-8 sm:h-10 sm:w-10 text-blue-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
               </svg>
             </div>
-            <h3 className="text-xl font-medium text-gradient bg-gradient-to-r from-blue-400 to-indigo-500 mb-2">
+            <h3 className="text-lg sm:text-xl font-medium text-gradient bg-gradient-to-r from-blue-400 to-indigo-500 mb-2">
               Panggilan Masuk
             </h3>
-            <p className="text-base text-slate-300 mb-8">
+            <p className="text-sm sm:text-base text-slate-300 mb-6 sm:mb-8">
               {callState.callerInfo?.displayName || 'Seseorang'} sedang menelepon Anda
             </p>
-            <div className="flex justify-center space-x-4">
+            <div className="flex flex-col sm:flex-row justify-center space-y-3 sm:space-y-0 sm:space-x-4">
               <button
                 onClick={handleRejectCall}
-                className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-500 hover:to-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 transition-smooth shadow-soft hover:shadow-medium"
+                className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-xl hover:from-red-500 hover:to-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 transition-smooth shadow-soft hover:shadow-medium"
               >
-                <div className="flex items-center">
-                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
+                <div className="flex items-center justify-center">
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.68.28-.53 0-.96-.43-.96-.96V9.72C2.21 11.26 1 13.51 1 16c0 2.76 2.24 5 5 5h12c2.76 0 5-2.24 5-5 0-2.49-1.21-4.74-3.07-6.13v5.17c0 .53-.43.96-.96.96-.25 0-.5-.1-.68-.28-.79-.73-1.68-1.36-2.66-1.85-.33-.16-.56-.51-.56-.9V9.72C15.15 9.25 13.6 9 12 9z" />
                   </svg>
                   Tolak
@@ -258,10 +270,10 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
               </button>
               <button
                 onClick={handleAcceptCall}
-                className="px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-500 hover:to-emerald-500 focus:outline-none focus:ring-2 focus:ring-green-500 transition-smooth shadow-soft hover:shadow-medium"
+                className="px-4 sm:px-6 py-2 sm:py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-500 hover:to-emerald-500 focus:outline-none focus:ring-2 focus:ring-green-500 transition-smooth shadow-soft hover:shadow-medium"
               >
-                <div className="flex items-center">
-                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
+                <div className="flex items-center justify-center">
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56-.35-.12-.74-.03-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z" />
                   </svg>
                   Terima
@@ -277,45 +289,45 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
   return (
     <div className="h-full flex flex-col card-modern shadow-hard overflow-hidden">
       {/* Header with tabs */}
-      <div className="p-4 border-b border-slate-700/30 glassmorphism bg-slate-800/40">
-        <div className="flex items-center justify-between">
+      <div className="p-3 sm:p-4 border-b border-slate-700/30 glassmorphism bg-slate-800/40">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-gradient bg-gradient-to-r from-blue-400 to-indigo-500">
+            <h2 className="text-lg sm:text-xl font-semibold text-gradient bg-gradient-to-r from-blue-400 to-indigo-500">
               Komunikasi
             </h2>
-            <p className="text-sm text-slate-300 mt-1">
+            <p className="text-xs sm:text-sm text-slate-300 mt-1 mb-3 sm:mb-0">
               Hubungi dan chat dengan anggota rumah lain
             </p>
           </div>
           <div className="flex space-x-2 bg-slate-900/40 p-1 rounded-lg border border-slate-700/40">
             <button 
               onClick={() => setActiveTab('call')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-smooth ${
+              className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-md text-xs sm:text-sm font-medium transition-smooth ${
                 activeTab === 'call' 
                   ? 'bg-gradient-to-r from-blue-600/70 to-indigo-600/70 text-white shadow-soft' 
                   : 'text-slate-300 hover:bg-slate-700/40'
               }`}
             >
-              <div className="flex items-center">
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="flex items-center justify-center sm:justify-start">
+                <svg className="w-4 h-4 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                 </svg>
-                Panggilan
+                <span className="hidden sm:inline">Panggilan</span>
               </div>
             </button>
             <button 
               onClick={() => setActiveTab('chat')}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-smooth ${
+              className={`flex-1 sm:flex-none px-3 sm:px-4 py-2 rounded-md text-xs sm:text-sm font-medium transition-smooth ${
                 activeTab === 'chat' 
                   ? 'bg-gradient-to-r from-blue-600/70 to-indigo-600/70 text-white shadow-soft' 
                   : 'text-slate-300 hover:bg-slate-700/40'
               }`}
             >
-              <div className="flex items-center">
-                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 24 24">
+              <div className="flex items-center justify-center sm:justify-start">
+                <svg className="w-4 h-4 sm:mr-2" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" />
                 </svg>
-                Chat
+                <span className="hidden sm:inline">Chat</span>
               </div>
             </button>
           </div>
@@ -324,18 +336,18 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
 
       {/* Error Message */}
       {error && (
-        <div className="mx-4 my-3 p-4 bg-red-900/30 border border-red-500/30 rounded-lg animate-fade-in" role="alert">
+        <div className="mx-2 sm:mx-4 my-2 sm:my-3 p-3 sm:p-4 bg-red-900/30 border border-red-500/30 rounded-lg animate-fade-in" role="alert">
           <div className="flex items-center">
-            <svg className="w-5 h-5 text-red-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
+            <svg className="w-4 h-4 sm:w-5 sm:h-5 text-red-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
             </svg>
-            <span className="text-red-200">{error}</span>
+            <span className="text-xs sm:text-sm text-red-200">{error}</span>
           </div>
           <button 
             onClick={() => setError('')}
             className="absolute top-2 right-2 text-red-400 hover:text-red-300"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -357,7 +369,7 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
                 />
 
                 {/* Local Video (picture-in-picture) */}
-                <div className="absolute bottom-6 right-6 w-48 h-36 rounded-xl overflow-hidden border-2 border-blue-500/40 shadow-hard glassmorphism">
+                <div className="absolute bottom-2 sm:bottom-6 right-2 sm:right-6 w-1/4 sm:w-1/3 md:w-48 h-auto rounded-xl overflow-hidden border-2 border-blue-500/40 shadow-hard glassmorphism aspect-video">
                   <video
                     ref={localVideoRef}
                     autoPlay
@@ -372,7 +384,7 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
                   <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center animate-fade-in">
                     <div className="text-center text-white">
                       <div className="loading-spinner mx-auto mb-6"></div>
-                      <p className="text-gradient bg-gradient-to-r from-blue-400 to-indigo-500 text-lg">Menghubungkan...</p>
+                      <p className="text-gradient bg-gradient-to-r from-blue-400 to-indigo-500 text-base sm:text-lg">Menghubungkan...</p>
                     </div>
                   </div>
                 )}
@@ -380,27 +392,27 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
                 {callState.isCalling && (
                   <div className="absolute inset-0 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center animate-fade-in">
                     <div className="text-center text-white">
-                      <div className="animate-pulse mb-6">
-                        <svg className="mx-auto h-16 w-16 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <div className="animate-pulse mb-4 sm:mb-6">
+                        <svg className="mx-auto h-12 w-12 sm:h-16 sm:w-16 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                         </svg>
                       </div>
-                      <p className="text-gradient bg-gradient-to-r from-blue-400 to-indigo-500 text-lg">Memanggil...</p>
+                      <p className="text-gradient bg-gradient-to-r from-blue-400 to-indigo-500 text-base sm:text-lg">Memanggil...</p>
                     </div>
                   </div>
                 )}
 
                 {/* Call Controls */}
-                <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex space-x-4 glassmorphism py-3 px-6 rounded-full shadow-hard animate-slide-up">
+                <div className="absolute bottom-2 sm:bottom-6 left-1/2 transform -translate-x-1/2 flex space-x-2 sm:space-x-4 glassmorphism py-2 sm:py-3 px-3 sm:px-6 rounded-full shadow-hard animate-slide-up">
                   <button
                     onClick={toggleAudio}
-                    className={`p-3 rounded-full ${
+                    className={`p-2 sm:p-3 rounded-full ${
                       isAudioEnabled 
                         ? 'bg-slate-700/80 hover:bg-slate-600/80' 
                         : 'bg-red-600/90 hover:bg-red-700/90'
                     } text-white transition-smooth shadow-soft`}
                   >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 24 24">
                       {isAudioEnabled ? (
                         <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2H3v2a9 9 0 008 8.941V21H9v2h6v-2h-2v-2.059A9 9 0 0021 12v-2h-2z" />
                       ) : (
@@ -411,13 +423,13 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
                   
                   <button
                     onClick={toggleVideo}
-                    className={`p-3 rounded-full ${
+                    className={`p-2 sm:p-3 rounded-full ${
                       isVideoEnabled 
                         ? 'bg-slate-700/80 hover:bg-slate-600/80' 
                         : 'bg-red-600/90 hover:bg-red-700/90'
                     } text-white transition-smooth shadow-soft`}
                   >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 24 24">
                       {isVideoEnabled ? (
                         <path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z" />
                       ) : (
@@ -428,9 +440,9 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
 
                   <button
                     onClick={handleEndCall}
-                    className="p-3 rounded-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white transition-smooth shadow-soft hover:shadow-medium"
+                    className="p-2 sm:p-3 rounded-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white transition-smooth shadow-soft hover:shadow-medium"
                   >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.68.28-.53 0-.96-.43-.96-.96V9.72C2.21 11.26 1 13.51 1 16c0 2.76 2.24 5 5 5h12c2.76 0 5-2.24 5-5 0-2.49-1.21-4.74-3.07-6.13v5.17c0 .53-.43.96-.96.96-.25 0-.5-.1-.68-.28-.79-.73-1.68-1.36-2.66-1.85-.33-.16-.56-.51-.56-.9V9.72C15.15 9.25 13.6 9 12 9z" />
                     </svg>
                   </button>
@@ -439,42 +451,42 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
             ) : (
               // Call start interface
               <div className="flex-1 flex items-center justify-center glassmorphism bg-gradient-to-b from-transparent to-slate-800/30">
-                <div className="text-center p-8 max-w-lg animate-fade-in">
-                  <div className="mx-auto flex items-center justify-center h-28 w-28 rounded-full bg-gradient-to-r from-blue-600/20 to-indigo-600/20 border border-indigo-500/30 mb-8 shadow-medium animate-float">
-                    <svg className="h-14 w-14 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="text-center p-4 sm:p-8 max-w-lg animate-fade-in">
+                  <div className="mx-auto flex items-center justify-center h-20 w-20 sm:h-28 sm:w-28 rounded-full bg-gradient-to-r from-blue-600/20 to-indigo-600/20 border border-indigo-500/30 mb-6 sm:mb-8 shadow-medium animate-float">
+                    <svg className="h-10 w-10 sm:h-14 sm:w-14 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                     </svg>
                   </div>
-                  <h3 className="text-2xl font-medium text-gradient bg-gradient-to-r from-blue-400 to-indigo-500 mb-3">
+                  <h3 className="text-xl sm:text-2xl font-medium text-gradient bg-gradient-to-r from-blue-400 to-indigo-500 mb-2 sm:mb-3">
                     Mulai Panggilan
                   </h3>
-                  <p className="text-base text-slate-300 mb-10 max-w-md mx-auto">
+                  <p className="text-sm sm:text-base text-slate-300 mb-6 sm:mb-10 max-w-md mx-auto">
                     Hubungi anggota rumah lain melalui video atau audio call untuk berkomunikasi secara langsung
                   </p>
                   <div className="flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-6">
                     <button
                       onClick={() => handleStartCall(false)}
-                      className="flex items-center justify-center px-8 py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-xl transition-smooth shadow-soft hover:shadow-medium"
+                      className="flex items-center justify-center px-6 py-3 sm:px-8 sm:py-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-xl transition-smooth shadow-soft hover:shadow-medium"
                     >
-                      <svg className="w-6 h-6 mr-3" fill="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 sm:w-6 sm:h-6 mr-2 sm:mr-3" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                       </svg>
-                      <span className="text-lg">Audio Call</span>
+                      <span className="text-base sm:text-lg">Audio Call</span>
                     </button>
                     <button
                       onClick={() => handleStartCall(true)}
-                      className="flex items-center justify-center px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl transition-smooth shadow-soft hover:shadow-medium"
+                      className="flex items-center justify-center px-6 py-3 sm:px-8 sm:py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl transition-smooth shadow-soft hover:shadow-medium"
                     >
-                      <svg className="w-6 h-6 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 sm:w-6 sm:h-6 mr-2 sm:mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                       </svg>
-                      <span className="text-lg">Video Call</span>
+                      <span className="text-base sm:text-lg">Video Call</span>
                     </button>
                   </div>
                   
-                  <p className="mt-10 text-xs text-slate-400">
+                  <p className="mt-6 sm:mt-10 text-xs text-slate-400">
                     <span className="inline-flex items-center mr-2">
-                      <svg className="w-4 h-4 mr-1 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                      <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
                         <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2h-1V9a1 1 0 00-1-1z" clipRule="evenodd" />
                       </svg>
                       Tip:
@@ -491,31 +503,31 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
           <div className="flex flex-col h-full">
             {/* Messages Container */}
             {loading ? (
-              <div className="flex items-center justify-center h-64">
+              <div className="flex items-center justify-center h-48 sm:h-64">
                 <div className="relative">
-                  <div className="w-12 h-12 rounded-full border-4 border-t-transparent border-blue-500 animate-spin"></div>
-                  <div className="mt-4 text-blue-400 text-sm animate-pulse">Memuat pesan...</div>
+                  <div className="w-8 h-8 sm:w-12 sm:h-12 rounded-full border-3 sm:border-4 border-t-transparent border-blue-500 animate-spin"></div>
+                  <div className="mt-3 sm:mt-4 text-blue-400 text-xs sm:text-sm animate-pulse">Memuat pesan...</div>
                 </div>
               </div>
             ) : (
               <div 
                 ref={chatContainerRef}
-                className="flex-1 overflow-y-auto p-4 space-y-4 glassmorphism bg-slate-800/20"
-                style={{ maxHeight: 'calc(100vh - 200px)' }}
+                className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4 glassmorphism bg-slate-800/20"
+                style={{ maxHeight: isMobile ? 'calc(100vh - 180px)' : 'calc(100vh - 200px)' }}
               >
                 {messages.length === 0 ? (
                   <div className="flex items-center justify-center h-full text-slate-400">
                     <div className="text-center animate-fade-in">
-                      <div className="relative w-24 h-24 mx-auto mb-4">
-                        <svg className="absolute w-24 h-24 text-blue-900/20 animate-float" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <div className="relative w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-3 sm:mb-4">
+                        <svg className="absolute w-20 h-20 sm:w-24 sm:h-24 text-blue-900/20 animate-float" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.959 8.959 0 01-4.906-1.476L3 21l2.524-5.094A8.959 8.959 0 013 12c0-4.418 3.582-8 8-8s8 3.582 8 8z" />
                         </svg>
-                        <svg className="absolute w-16 h-16 text-indigo-500/20 top-4 left-4 animate-float" style={{animationDelay: '1s'}} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="absolute w-14 h-14 sm:w-16 sm:h-16 text-indigo-500/20 top-3 sm:top-4 left-3 sm:left-4 animate-float" style={{animationDelay: '1s'}} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.959 8.959 0 01-4.906-1.476L3 21l2.524-5.094A8.959 8.959 0 013 12c0-4.418 3.582-8 8-8s8 3.582 8 8z" />
                         </svg>
                       </div>
-                      <h3 className="mt-2 text-xl font-medium text-gradient bg-gradient-to-r from-blue-400 to-indigo-500">Belum ada pesan</h3>
-                      <p className="mt-4 text-sm text-slate-400 max-w-xs mx-auto leading-relaxed">
+                      <h3 className="mt-2 text-lg sm:text-xl font-medium text-gradient bg-gradient-to-r from-blue-400 to-indigo-500">Belum ada pesan</h3>
+                      <p className="mt-3 sm:mt-4 text-xs sm:text-sm text-slate-400 max-w-xs mx-auto leading-relaxed">
                         Mulai percakapan dengan mengirim pesan pertama kepada anggota rumah Anda.
                       </p>
                     </div>
@@ -531,33 +543,33 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
                           className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'} animate-fade-in`}
                         >
                           {!isOwnMessage && (
-                            <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarColor(message.senderId)} flex items-center justify-center mr-2 shadow-soft`}>
-                              <span className="text-xs font-medium text-white">
+                            <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br ${getAvatarColor(message.senderId)} flex items-center justify-center mr-1.5 sm:mr-2 shadow-soft mt-1`}>
+                              <span className="text-2xs sm:text-xs font-medium text-white">
                                 {getUserInitials(message.senderId)}
                               </span>
                             </div>
                           )}
                           
                           <div
-                            className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-soft transition-all duration-200 ${
+                            className={`max-w-[75%] sm:max-w-xs md:max-w-md px-3 sm:px-4 py-2 sm:py-3 rounded-2xl shadow-soft transition-all duration-200 ${
                               isOwnMessage
                                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:shadow-medium hover:-translate-y-0.5'
                                 : 'glassmorphism bg-slate-800/40 text-slate-200 hover:shadow-medium hover:-translate-y-0.5'
                             }`}
                           >
-                            <p className="text-sm leading-relaxed">{message.text}</p>
-                            <div className={`mt-1 text-xs flex items-center justify-between ${
+                            <p className="text-xs sm:text-sm leading-relaxed">{message.text}</p>
+                            <div className={`mt-1 text-2xs sm:text-xs flex items-center justify-between ${
                               isOwnMessage ? 'text-indigo-200/80' : 'text-slate-400'
                             }`}>
                               <span>{formatTime(message.timestamp)}</span>
                               {isOwnMessage && (
                                 <span className="ml-2 flex items-center">
                                   {message.read ? (
-                                    <svg className="w-3 h-3 ml-1 text-blue-300" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3 ml-1 text-blue-300" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                       <path d="M4.5 12.75L10.5 18.75L19.5 5.25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                                     </svg>
                                   ) : (
-                                    <svg className="w-3 h-3 ml-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3 ml-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                       <path d="M9 12L11 14L15 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                                     </svg>
                                   )}
@@ -567,8 +579,8 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
                           </div>
                           
                           {isOwnMessage && (
-                            <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarColor(message.senderId)} flex items-center justify-center ml-2 shadow-soft`}>
-                              <span className="text-xs font-medium text-white">
+                            <div className={`w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-gradient-to-br ${getAvatarColor(message.senderId)} flex items-center justify-center ml-1.5 sm:ml-2 shadow-soft mt-1`}>
+                              <span className="text-2xs sm:text-xs font-medium text-white">
                                 {getUserInitials(message.senderId)}
                               </span>
                             </div>
@@ -583,26 +595,26 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
             )}
 
             {/* Message Input */}
-            <div className="p-4 border-t border-slate-700/30 bg-slate-800/50">
+            <div className="p-2 sm:p-4 border-t border-slate-700/30 bg-slate-800/50">
               <form onSubmit={handleSendMessage} className="flex space-x-2">
                 <input
                   type="text"
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   placeholder="Ketik pesan..."
-                  className="flex-1 input-modern shadow-soft focus:ring-2 focus:ring-blue-500/50"
+                  className="flex-1 input-modern shadow-soft focus:ring-2 focus:ring-blue-500/50 text-xs sm:text-sm h-10 sm:h-auto"
                   disabled={sending}
                 />
                 <button
                   type="submit"
                   disabled={sending || !newMessage.trim()}
-                  className="px-4 py-2 btn-primary text-white rounded-lg flex items-center justify-center shadow-soft hover:shadow-medium transition-smooth disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:transform-none"
+                  className="px-3 sm:px-4 py-2 btn-primary text-white rounded-lg flex items-center justify-center shadow-soft hover:shadow-medium transition-smooth disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:transform-none"
                   aria-label="Send message"
                 >
                   {sending ? (
-                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                    <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-2 border-white border-t-transparent"></div>
                   ) : (
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <svg className="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <path d="M10.3009 13.6948L20.102 3.89668M10.5795 14.1663L12.8019 18.5317C13.339 19.6473 14.8883 19.7545 15.5975 18.7263L21.3961 10.1245C21.9701 9.31173 21.5224 8.21519 20.564 8.02681L3.75756 4.00984C2.70599 3.8036 1.8299 4.88221 2.25233 5.89143L5.87486 15.5202C6.21456 16.3766 7.26272 16.7249 8.02371 16.2485L10.5795 14.1663Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                   )}

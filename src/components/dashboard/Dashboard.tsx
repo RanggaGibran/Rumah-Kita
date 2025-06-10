@@ -206,10 +206,9 @@ const Dashboard: React.FC = () => {
               >
                 Komunikasi
               </button>
-            </div>
-
-            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl shadow-xl overflow-hidden">
-              <div className="p-8">                {activeTab === 'dashboard' && home && <HomeSettings home={home} />}
+            </div>            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl shadow-xl overflow-hidden">
+              <div className="p-3 sm:p-4 md:p-6 lg:p-8">
+                {activeTab === 'dashboard' && home && <HomeSettings home={home} />}
                 {activeTab === 'notes' && homeId && <Notes />}
                 {activeTab === 'wishlist' && homeId && <Wishlist homeId={homeId} />}
                 {activeTab === 'call' && homeId && <VideoCallChat homeId={homeId} />}
