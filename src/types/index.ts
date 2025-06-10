@@ -2,4 +2,4 @@
 export * from './user';
 
 // Define TabType for Navbar and Dashboard
-export type TabType = 'dashboard' | 'notes' | 'wishlist' | 'chat' | 'call';
+export type TabType = 'dashboard' | 'notes' | 'wishlist' | 'call';

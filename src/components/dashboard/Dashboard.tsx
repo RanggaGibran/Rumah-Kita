@@ -5,8 +5,7 @@ import { getHomeById } from '../../services/firebase/home';
 import { Home, TabType } from '../../types'; // Import TabType
 import Notes from '../notes/Notes';
 import Wishlist from '../wishlist/Wishlist';
-import Chat from '../chat/Chat';
-import VideoCall from '../call/VideoCall';
+import VideoCallChat from '../call/VideoCallChat';
 import HomeSettings from './HomeSettings';
 
 const Dashboard: React.FC = () => {
@@ -91,7 +90,7 @@ const Dashboard: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500"></div>
-      </div>
+      </div>  
     );
   }
 
@@ -182,9 +181,7 @@ const Dashboard: React.FC = () => {
                   </div>
                 </div>
               </div>
-            )}
-
-            <div className="md:hidden mb-6 flex overflow-x-auto space-x-2">
+            )}            <div className="md:hidden mb-6 flex overflow-x-auto space-x-2">
               <button
                 onClick={() => handleTabChange('dashboard')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'dashboard' ? 'bg-purple-600 text-white' : 'bg-slate-700/50 hover:bg-slate-700'}`}
@@ -204,26 +201,18 @@ const Dashboard: React.FC = () => {
                 Wishlist
               </button>
               <button
-                onClick={() => handleTabChange('chat')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'chat' ? 'bg-purple-600 text-white' : 'bg-slate-700/50 hover:bg-slate-700'}`}
-              >
-                Chat
-              </button>
-              <button
                 onClick={() => handleTabChange('call')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'call' ? 'bg-purple-600 text-white' : 'bg-slate-700/50 hover:bg-slate-700'}`}
               >
-                Panggilan
+                Komunikasi
               </button>
             </div>
 
             <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl shadow-xl overflow-hidden">
-              <div className="p-8">
-                {activeTab === 'dashboard' && home && <HomeSettings home={home} />}
+              <div className="p-8">                {activeTab === 'dashboard' && home && <HomeSettings home={home} />}
                 {activeTab === 'notes' && homeId && <Notes />}
                 {activeTab === 'wishlist' && homeId && <Wishlist homeId={homeId} />}
-                {activeTab === 'chat' && homeId && <Chat homeId={homeId} />}
-                {activeTab === 'call' && homeId && <VideoCall homeId={homeId} />}
+                {activeTab === 'call' && homeId && <VideoCallChat homeId={homeId} />}
               </div>
             </div>
           </div>

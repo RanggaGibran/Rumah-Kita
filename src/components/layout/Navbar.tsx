@@ -131,12 +131,10 @@ const Navbar: React.FC<NavbarProps> = ({ showHomeTabs }) => {
               </Link>
             )}
 
-            {showHomeTabs && (
-              <>
+            {showHomeTabs && (              <>
                 <a href="#" onClick={(e) => handleTabClick('notes', e)} className={getNavLinkClass('notes')}>Notes</a>
                 <a href="#" onClick={(e) => handleTabClick('wishlist', e)} className={getNavLinkClass('wishlist')}>Wishlist</a>
-                <a href="#" onClick={(e) => handleTabClick('chat', e)} className={getNavLinkClass('chat')}>Chat</a>
-                <a href="#" onClick={(e) => handleTabClick('call', e)} className={getNavLinkClass('call')}>Panggilan</a>
+                <a href="#" onClick={(e) => handleTabClick('call', e)} className={getNavLinkClass('call')}>Komunikasi</a>
               </>
             )}
           </div>
@@ -208,12 +206,10 @@ const Navbar: React.FC<NavbarProps> = ({ showHomeTabs }) => {
                 Dashboard
               </Link>
             )}
-              {showHomeTabs && (
-              <>
+              {showHomeTabs && (              <>
                 <a href="#" onClick={(e) => handleTabClick('notes', e)} className={getMobileNavLinkClass('notes')}>Notes</a>
                 <a href="#" onClick={(e) => handleTabClick('wishlist', e)} className={getMobileNavLinkClass('wishlist')}>Wishlist</a>
-                <a href="#" onClick={(e) => handleTabClick('chat', e)} className={getMobileNavLinkClass('chat')}>Chat</a>
-                <a href="#" onClick={(e) => handleTabClick('call', e)} className={getMobileNavLinkClass('call')}>Panggilan</a>
+                <a href="#" onClick={(e) => handleTabClick('call', e)} className={getMobileNavLinkClass('call')}>Komunikasi</a>
               </>
             )}
             {/* Mobile Auth Links */}
