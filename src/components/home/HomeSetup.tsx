@@ -47,9 +47,6 @@ const HomeSetup: React.FC = () => {
         
         // Jika user sudah punya rumah dan sedang ada di halaman dashboard utama, 
         // arahkan ke rumah pertama
-        if (homes.length > 0 && window.location.pathname === '/dashboard') {
-          navigate(`/dashboard/${homes[0].id}`);
-        }
       }
       setLoading(false);
     }

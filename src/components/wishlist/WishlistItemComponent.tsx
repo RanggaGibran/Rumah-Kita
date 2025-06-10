@@ -41,22 +41,25 @@ const WishlistItemComponent: React.FC<WishlistItemComponentProps> = ({
   const isOwner = currentUser?.uid === item.createdBy;
 
   return (
-    <div className={`bg-white p-4 rounded-lg shadow border-l-4 ${
-      item.completed ? 'border-green-500 bg-gray-50' : 'border-indigo-500'
+    <div className={`glassmorphism p-4 rounded-xl shadow-soft border-l-4 transition-smooth animate-fade-in ${
+      item.completed 
+        ? 'border-l-green-500/70 bg-green-900/10' 
+        : 'border-l-blue-500/70 hover:bg-slate-800/30'
     }`}>
       {isEditing ? (
-        <div className="space-y-3">
+        <div className="space-y-3 animate-scale-in">
           <input
             type="text"
             value={editTitle}
             onChange={(e) => setEditTitle(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="input-modern w-full"
             placeholder="Judul item"
+            autoFocus
           />
           <textarea
             value={editDescription}
             onChange={(e) => setEditDescription(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="input-modern w-full resize-none"
             placeholder="Deskripsi (opsional)"
             rows={2}
           />
@@ -64,20 +67,26 @@ const WishlistItemComponent: React.FC<WishlistItemComponentProps> = ({
             type="url"
             value={editUrl}
             onChange={(e) => setEditUrl(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="input-modern w-full"
             placeholder="URL (opsional)"
           />
-          <div className="flex justify-end space-x-2">
+          <div className="flex justify-end space-x-2 pt-2">
             <button
               onClick={handleCancelEdit}
-              className="px-3 py-1 text-sm bg-gray-300 text-gray-700 rounded hover:bg-gray-400"
+              className="btn-secondary text-sm px-3 py-1.5 flex items-center"
             >
+              <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
               Batal
             </button>
             <button
               onClick={handleSaveEdit}
-              className="px-3 py-1 text-sm bg-indigo-600 text-white rounded hover:bg-indigo-700"
+              className="btn-primary text-sm px-3 py-1.5 flex items-center"
             >
+              <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
               Simpan
             </button>
           </div>
@@ -90,8 +99,8 @@ const WishlistItemComponent: React.FC<WishlistItemComponentProps> = ({
                 onClick={() => onToggleComplete(item.id, !item.completed)}
                 className={`mt-1 w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                   item.completed
-                    ? 'bg-green-500 border-green-500 text-white'
-                    : 'border-gray-300 hover:border-indigo-500'
+                    ? 'bg-gradient-to-br from-green-500 to-emerald-600 border-green-400 text-white shadow-soft'
+                    : 'border-slate-600 hover:border-blue-500 transition-smooth'
                 }`}
               >
                 {item.completed && (
@@ -103,14 +112,14 @@ const WishlistItemComponent: React.FC<WishlistItemComponentProps> = ({
               
               <div className="flex-1 min-w-0">
                 <h4 className={`text-sm font-medium ${
-                  item.completed ? 'text-gray-500 line-through' : 'text-gray-900'
+                  item.completed ? 'text-slate-400 line-through' : 'text-white'
                 }`}>
                   {item.title}
                 </h4>
                 
                 {item.description && (
-                  <p className={`mt-1 text-sm ${
-                    item.completed ? 'text-gray-400' : 'text-gray-600'
+                  <p className={`mt-1.5 text-sm ${
+                    item.completed ? 'text-slate-500' : 'text-slate-400'
                   }`}>
                     {item.description}
                   </p>
@@ -121,7 +130,7 @@ const WishlistItemComponent: React.FC<WishlistItemComponentProps> = ({
                     href={item.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-2 inline-flex items-center text-sm text-indigo-600 hover:text-indigo-800"
+                    className="mt-2 inline-flex items-center text-sm text-blue-400 hover:text-blue-300 transition-smooth"
                   >
                     <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -130,10 +139,20 @@ const WishlistItemComponent: React.FC<WishlistItemComponentProps> = ({
                   </a>
                 )}
                 
-                <div className="mt-2 flex items-center text-xs text-gray-500 space-x-4">
-                  <span>Dibuat {new Date(item.createdAt).toLocaleDateString('id-ID')}</span>
+                <div className="mt-2 flex flex-wrap items-center text-xs text-slate-500 space-x-4">
+                  <span className="flex items-center">
+                    <svg className="w-3 h-3 mr-1 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    {new Date(item.createdAt).toLocaleDateString('id-ID')}
+                  </span>
                   {item.completed && item.completedAt && (
-                    <span>Selesai {new Date(item.completedAt).toLocaleDateString('id-ID')}</span>
+                    <span className="flex items-center text-green-500/70">
+                      <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      {new Date(item.completedAt).toLocaleDateString('id-ID')}
+                    </span>
                   )}
                 </div>
               </div>
@@ -144,7 +163,7 @@ const WishlistItemComponent: React.FC<WishlistItemComponentProps> = ({
               <div className="flex items-center space-x-2 ml-4">
                 <button
                   onClick={() => setIsEditing(true)}
-                  className="text-gray-400 hover:text-indigo-600"
+                  className="text-slate-400 hover:text-blue-400 transition-smooth p-1 rounded-full hover:bg-blue-900/20"
                   title="Edit"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -157,7 +176,7 @@ const WishlistItemComponent: React.FC<WishlistItemComponentProps> = ({
                       onDelete(item.id);
                     }
                   }}
-                  className="text-gray-400 hover:text-red-600"
+                  className="text-slate-400 hover:text-red-400 transition-smooth p-1 rounded-full hover:bg-red-900/20"
                   title="Hapus"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
