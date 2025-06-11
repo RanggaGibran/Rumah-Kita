@@ -100,7 +100,7 @@ const Wishlist: React.FC<WishlistProps> = ({ homeId }) => {
   const pendingItems = items.filter(item => !item.completed);
 
   return (
-    <div className="card-modern h-full flex flex-col overflow-hidden">
+    <div className="flex flex-col h-full">
       {error && (
         <div className="mx-4 mt-4 p-4 bg-red-900/30 border border-red-500/30 rounded-lg animate-fade-in relative" role="alert">
           <div className="flex items-center">
@@ -163,7 +163,7 @@ const Wishlist: React.FC<WishlistProps> = ({ homeId }) => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 bg-gradient-to-b from-transparent to-slate-800/30">
+      <div className="flex-1 overflow-y-auto p-4 bg-gradient-to-b from-transparent to-slate-800/30" style={{ minHeight: '500px' }}>
         {/* Desktop view toggle for completed items */}
         <div className="hidden sm:flex justify-between items-center mb-6">
           <h3 className="text-lg font-medium text-slate-200">
@@ -201,7 +201,7 @@ const Wishlist: React.FC<WishlistProps> = ({ homeId }) => {
                 <p className="text-sm mt-2">Tambahkan item pertama Anda untuk berbagi dengan anggota rumah</p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-4 pb-4">
                 {pendingItems.map(item => (
                   <WishlistItemComponent
                     key={item.id}
@@ -246,7 +246,7 @@ const Wishlist: React.FC<WishlistProps> = ({ homeId }) => {
                 <p className="text-sm mt-2">Selesaikan beberapa item dari daftar Anda</p>
               </div>
             ) : (
-              <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2 pb-4">
                 {completedItems.map(item => (
                   <WishlistItemComponent
                     key={item.id}
@@ -282,12 +282,14 @@ const Wishlist: React.FC<WishlistProps> = ({ homeId }) => {
         </div>
       </div>
       
-      {/* Add Wishlist Item Modal */}
+      {/* Add Wishlist Item Modal - render at document level with high z-index */}
       {showAddForm && (
-        <AddWishlistItem
-          onAdd={handleAddItem}
-          onCancel={() => setShowAddForm(false)}
-        />
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          <AddWishlistItem
+            onAdd={handleAddItem}
+            onCancel={() => setShowAddForm(false)}
+          />
+        </div>
       )}
     </div>
   );

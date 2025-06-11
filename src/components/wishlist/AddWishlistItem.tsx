@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface AddWishlistItemProps {
   onAdd: (title: string, description?: string, url?: string) => Promise<void>;
@@ -10,6 +10,19 @@ const AddWishlistItem: React.FC<AddWishlistItemProps> = ({ onAdd, onCancel }) =>
   const [description, setDescription] = useState('');
   const [url, setUrl] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Add effect to prevent scrolling when modal is open
+  useEffect(() => {
+    // Save the original overflow style
+    const originalStyle = window.getComputedStyle(document.body).overflow;
+    // Prevent scrolling on the background
+    document.body.style.overflow = 'hidden';
+    
+    // Restore original overflow when component unmounts
+    return () => {
+      document.body.style.overflow = originalStyle;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,8 +42,8 @@ const AddWishlistItem: React.FC<AddWishlistItemProps> = ({ onAdd, onCancel }) =>
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm overflow-y-auto h-full w-full z-50 flex items-center justify-center animate-fade-in">
-      <div className="relative mx-auto p-6 w-full max-w-md card-modern shadow-hard">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center animate-fade-in">
+      <div className="relative mx-auto p-6 w-full max-w-md card-modern shadow-hard" style={{ maxHeight: '90vh', overflowY: 'auto' }}>
         <div className="mt-1">
           <h3 className="text-xl font-semibold text-gradient bg-gradient-to-r from-blue-400 to-indigo-500 mb-5">
             Tambah Item Wishlist

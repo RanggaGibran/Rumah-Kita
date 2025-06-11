@@ -40,6 +40,8 @@ export interface WishlistItem {
   completed: boolean;
   completedBy?: string;
   completedAt?: Date;
+  rating?: number; // Rating from 1-5 stars
+  ratingComment?: string; // Comment for the rating
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;

@@ -79,12 +79,22 @@ export const getHomeWishlist = async (homeId: string) => {
       const items: WishlistItem[] = [];
     querySnapshot.forEach((doc) => {
       const data = doc.data();
-      items.push({
-        ...data,
+      const item: WishlistItem = {
+        id: data.id,
+        homeId: data.homeId,
+        title: data.title,
+        description: data.description,
+        url: data.url,
+        completed: data.completed,
+        completedBy: data.completedBy,
+        completedAt: data.completedAt?.toDate ? data.completedAt.toDate() : (data.completedAt ? new Date(data.completedAt) : undefined),
+        rating: data.rating,
+        ratingComment: data.ratingComment,
+        createdBy: data.createdBy,
         createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(data.createdAt),
         updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(data.updatedAt),
-        completedAt: data.completedAt?.toDate ? data.completedAt.toDate() : (data.completedAt ? new Date(data.completedAt) : undefined),
-      } as WishlistItem);
+      };
+      items.push(item);
     });
     
     return { items, error: null };
@@ -105,7 +115,14 @@ export const updateWishlistItem = async (itemId: string, updates: Partial<Wishli
     Object.keys(updates).forEach(key => {
       const value = updates[key as keyof WishlistItem];
       if (value !== undefined) {
-        updateData[key] = value;
+        // Special handling for specific fields
+        if (key === 'rating') {
+          updateData.rating = value;
+        } else if (key === 'ratingComment') {
+          updateData.ratingComment = value;
+        } else {
+          updateData[key] = value;
+        }
       }
     });
 
@@ -120,7 +137,8 @@ export const updateWishlistItem = async (itemId: string, updates: Partial<Wishli
     }
     if (updates.completedAt && updates.completedAt instanceof Date) {
       updateData.completedAt = Timestamp.fromDate(updates.completedAt);
-    }    // Jika item di-uncomplete, hapus completedAt dan completedBy dengan deleteField
+    }    
+    // Jika item di-uncomplete, hapus completedAt dan completedBy dengan deleteField
     if (updates.completed === false) {
       updateData.completedAt = deleteField();
       updateData.completedBy = deleteField();
@@ -184,4 +202,21 @@ export const subscribeToHomeWishlist = (homeId: string, callback: (items: Wishli
     });
     callback(items);
   });
+};
+
+// Rate a completed wishlist item
+export const rateWishlistItem = async (itemId: string, rating: number, comment?: string) => {
+  // Ensure rating is between 1 and 5
+  const validRating = Math.min(Math.max(rating, 1), 5);
+  
+  const updates: Partial<WishlistItem> = {
+    rating: validRating,
+    updatedAt: new Date()
+  };
+  
+  if (comment !== undefined) {
+    updates.ratingComment = comment;
+  }
+  
+  return updateWishlistItem(itemId, updates);
 };
