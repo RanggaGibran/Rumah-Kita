@@ -130,9 +130,20 @@ const WishlistItemComponent: React.FC<WishlistItemComponentProps> = ({
             {item.ratingComment && (
               <div className="mt-1.5">
                 <p className="text-xs text-slate-400">Komentar:</p>
-                <p className="text-xs text-slate-300 mt-1 bg-slate-800/30 rounded-md p-2">
-                  {item.ratingComment}
-                </p>
+                <div className="flex items-start justify-between">
+                  <p className="text-xs text-slate-300 mt-1 bg-slate-800/30 rounded-md p-2 flex-1 mr-2">
+                    {item.ratingComment}
+                  </p>
+                  <button
+                    onClick={() => setIsEditingRating(true)}
+                    className="text-xs text-blue-400 hover:text-blue-300 transition-smooth mt-1"
+                    title="Edit komentar"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -165,14 +176,22 @@ const WishlistItemComponent: React.FC<WishlistItemComponentProps> = ({
             </div>
 
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Komentar:</label>
+              <label className="text-xs text-slate-400 block mb-1 flex items-center justify-between">
+                <span>Komentar:</span>
+                <span className="text-slate-500 text-[10px]">{ratingComment.length}/200 karakter</span>
+              </label>
               <textarea
                 value={ratingComment}
-                onChange={(e) => setRatingComment(e.target.value)}
+                onChange={(e) => setRatingComment(e.target.value.slice(0, 200))}
                 className="input-modern w-full resize-none text-sm"
                 placeholder="Tambahkan komentar tentang item ini"
-                rows={2}
+                rows={3}
               />
+              {ratingComment.length >= 190 && (
+                <p className="text-[10px] text-amber-400 mt-1">
+                  Batas maksimum 200 karakter
+                </p>
+              )}
             </div>
 
             <div className="flex justify-end space-x-2">

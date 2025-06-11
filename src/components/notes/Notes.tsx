@@ -8,7 +8,7 @@ import {
   deleteNote 
 } from '../../services/firebase/notes';
 import { Note } from '../../types/user';
-import NoteEditor from 'components/notes/NoteEditor';
+import NoteEditor from './NoteEditor';
 
 const Notes: React.FC = () => {
   const { homeId } = useParams<{ homeId: string }>();

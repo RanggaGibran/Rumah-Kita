@@ -1,5 +1,4 @@
-{
-  "compilerOptions": {
+{  "compilerOptions": {
     "target": "es5",
     "lib": [
       "dom",
@@ -19,7 +18,12 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "baseUrl": "src"
+    "baseUrl": "src",
+    "paths": {
+      "*": ["*"],
+      "components/*": ["components/*"],
+      "components/pets/*": ["components/pets/*"]
+    }
   },
   "include": [
     "src"

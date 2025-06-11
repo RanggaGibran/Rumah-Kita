@@ -6,6 +6,7 @@ import { Home, TabType } from '../../types'; // Import TabType
 import Notes from '../notes/Notes';
 import Wishlist from '../wishlist/Wishlist';
 import VideoCallChat from '../call/VideoCallChat';
+import PetsList from '../pets/PetsList';
 import HomeSettings from './HomeSettings';
 
 const Dashboard: React.FC = () => {
@@ -206,12 +207,46 @@ const Dashboard: React.FC = () => {
               >
                 Komunikasi
               </button>
+              <button
+                onClick={() => handleTabChange('pets')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'pets' ? 'bg-purple-600 text-white' : 'bg-slate-700/50 hover:bg-slate-700'}`}
+              >
+                Pets
+              </button>
             </div>            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl shadow-xl overflow-hidden">
               <div className="p-3 sm:p-4 md:p-6 lg:p-8">
-                {activeTab === 'dashboard' && home && <HomeSettings home={home} />}
-                {activeTab === 'notes' && homeId && <Notes />}
-                {activeTab === 'wishlist' && homeId && <Wishlist homeId={homeId} />}
-                {activeTab === 'call' && homeId && <VideoCallChat homeId={homeId} />}
+                {/* Tab Content */}
+                <div className="flex-1 overflow-y-auto">
+                  {activeTab === 'dashboard' && (
+                    <div className="p-6 max-w-7xl mx-auto">
+                      <div className="mb-6">
+                        <h2 className="text-2xl font-bold text-gradient bg-gradient-to-r from-indigo-400 to-purple-500 mb-2">
+                          Selamat datang di {home?.name || 'Rumah Kita'}
+                        </h2>
+                        <p className="text-slate-400">
+                          Nikmati waktu berkualitas dengan orang-orang terdekat Anda
+                        </p>
+                      </div>
+                      
+                      <HomeSettings home={home} />
+                    </div>
+                  )}
+                    {activeTab === 'notes' && (
+                    <Notes />
+                  )}
+                  
+                  {activeTab === 'wishlist' && (
+                    <Wishlist homeId={homeId || ''} />
+                  )}
+                  
+                  {activeTab === 'call' && (
+                    <VideoCallChat homeId={homeId || ''} />
+                  )}
+                  
+                  {activeTab === 'pets' && (
+                    <PetsList homeId={homeId || ''} />
+                  )}
+                </div>
               </div>
             </div>
           </div>
