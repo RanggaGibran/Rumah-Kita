@@ -125,7 +125,7 @@ const PetsList: React.FC<PetsListProps> = ({ homeId }) => {
         </div>
       )}
 
-      {/* Pet Interaction Modal */}
+          {/* Pet Interaction Modal */}
       {selectedPet && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center">
           <PetInteraction

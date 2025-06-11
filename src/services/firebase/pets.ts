@@ -236,23 +236,37 @@ export const interactWithPet = async (
       const options = fallbackResponses[interactionType];
       response = options[Math.floor(Math.random() * options.length)];
     }
-    
-    // Create interaction record
+    // Create interaction record with only required fields
     const interactionData: PetInteraction = {
       id: interactionId,
       petId,
       userId,
       type: interactionType,
-      timestamp,
-      message,
-      response
+      timestamp
     };
     
-    const interactionRef = doc(firestore, "petInteractions", interactionId);
-    await setDoc(interactionRef, {
-      ...interactionData,
+    // Create the Firestore data object
+    const firestoreData: any = {
+      id: interactionId,
+      petId,
+      userId,
+      type: interactionType,
       timestamp: Timestamp.fromDate(timestamp)
-    });
+    };
+    
+    // Only add optional properties if they are defined and not empty
+    if (message && message.trim() !== '') {
+      interactionData.message = message;
+      firestoreData.message = message;
+    }
+    
+    if (response) {
+      interactionData.response = response;
+      firestoreData.response = response;
+    }
+    
+    const interactionRef = doc(firestore, "petInteractions", interactionId);
+    await setDoc(interactionRef, firestoreData);
     
     // Update pet state based on interaction
     const updates: Partial<Pet> = {
@@ -422,11 +436,13 @@ const generatePetResponse = async (
   message?: string
 ): Promise<string> => {
   try {
-    // Check if we have a valid Gemini API key
-    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+    // Check if we have a valid Gemini API key from localStorage first, then env var as fallback
+    const localApiKey = typeof window !== 'undefined' ? localStorage.getItem('RUMAH_KITA_GEMINI_API_KEY') : null;
+    const envApiKey = process.env.REACT_APP_GEMINI_API_KEY;
+    const apiKey = localApiKey || envApiKey;
     
     if (!apiKey) {
-      console.warn("REACT_APP_GEMINI_API_KEY not found. Using fallback responses.");
+      console.warn("No Gemini API key found. Using fallback responses.");
       return generateFallbackResponse(pet, interactionType, message);
     }
     
