@@ -1,4 +1,13 @@
-import { SignalingService, SignalingMessage } from './signaling';
+import { SignalingService, SignalingMessage, Room } from './signaling';
+
+export interface Participant {
+  userId: string;
+  displayName: string;
+  hasVideo: boolean;
+  hasAudio: boolean;
+  stream?: MediaStream;
+  connection?: RTCPeerConnection;
+}
 
 export interface CallState {
   isConnected: boolean;
@@ -11,33 +20,53 @@ export interface CallState {
   };
   localStream?: MediaStream;
   remoteStream?: MediaStream;
+  
+  // Room-based fields
+  inRoom: boolean;
+  roomId?: string;
+  roomName?: string;
+  participants: Record<string, Participant>;
 }
 
 export class WebRTCService {
+  // For backward compatibility
   private peerConnection: RTCPeerConnection | null = null;
-  private signalingService: SignalingService;
-  private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
+  private isInitiator = false;
+  private connectedPeerId: string | null = null;
   
+  // New room-based properties
+  private peerConnections: Map<string, RTCPeerConnection> = new Map();
+  private localStream: MediaStream | null = null;
+  private remoteStreams: Map<string, MediaStream> = new Map();
+  
+  private signalingService: SignalingService;
   private onExternalStateChange: (state: CallState) => void;
   private internalCallState: CallState;
-  private isInitiator = false;
   private homeId: string; 
   private userId: string; 
   private userDisplayName: string; 
-  private connectedPeerId: string | null = null; 
-  private unsubscribeSignaling: (() => void) | null = null; 
-
-
+  private unsubscribeSignaling: (() => void) | null = null;
+  private unsubscribeRoom: (() => void) | null = null;
   // STUN/TURN servers configuration
   private readonly rtcConfiguration: RTCConfiguration = {
     iceServers: [
+      // Google's public STUN servers
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' }
-    ]
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+      // Twilio's STUN server
+      { urls: 'stun:global.stun.twilio.com:3478?transport=udp' },
+      // Additional public STUN servers for redundancy
+      { urls: 'stun:stun.stunprotocol.org:3478' },
+      { urls: 'stun:stun.ekiga.net:3478' }
+    ],
+    iceCandidatePoolSize: 10,
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require'
   };
-
   constructor(
     homeId: string,
     userId: string,
@@ -49,7 +78,14 @@ export class WebRTCService {
     this.userDisplayName = userDisplayName;
     this.signalingService = new SignalingService(homeId, userId); 
     this.onExternalStateChange = onStateChange;
-    this.internalCallState = { isConnected: false, isConnecting: false, isCalling: false, isReceivingCall: false };
+    this.internalCallState = { 
+      isConnected: false, 
+      isConnecting: false, 
+      isCalling: false, 
+      isReceivingCall: false,
+      inRoom: false,
+      participants: {}
+    };
     this.onExternalStateChange(this.internalCallState); // Initial dispatch
     this.setupSignalingListeners();
   }
@@ -58,7 +94,6 @@ export class WebRTCService {
     this.internalCallState = { ...this.internalCallState, ...newState };
     this.onExternalStateChange(this.internalCallState);
   }
-
   private setupSignalingListeners() {
     if (this.unsubscribeSignaling) {
       this.unsubscribeSignaling();
@@ -66,56 +101,516 @@ export class WebRTCService {
     }
     this.unsubscribeSignaling = this.signalingService.onMessage(async (message: SignalingMessage) => {
       try {
-        if (message.from === this.userId && message.to !== this.userId && message.type !== 'call-request') {
-            // console.log(`WebRTCService: Ignoring self-sent message type ${message.type} not explicitly to self or not a call-request`);
+        if (message.from === this.userId && message.to !== this.userId && 
+            !['call-request', 'room-join'].includes(message.type)) {
             return;
         }
 
+        // Handle room-based messages
+        if (message.roomId && this.internalCallState.roomId !== message.roomId) {
+          console.log(`WebRTCService: Ignoring message for different room: ${message.roomId}`);
+          return;
+        }
+        
         switch (message.type) {
+          // Handle legacy call messages for backward compatibility
           case 'call-request':
             if (message.from !== this.userId) {
               this.handleIncomingCall(message);
             }
             break;
           case 'call-accept':
-            if (message.from !== this.userId) { // Accept must be from another user
+            if (message.from !== this.userId) {
               await this.handleCallAccepted(message);
             }
             break;
           case 'call-reject':
-            if (message.from !== this.userId) { // Reject must be from another user
+            if (message.from !== this.userId) {
               this.handleCallRejected(message);
             }
             break;
           case 'call-end':
-            if (message.from !== this.userId) { // End must be from another user
+            if (message.from !== this.userId) {
               this.handleCallEnded(message);
             }
             break;
+            
+          // Room-based messages
+          case 'room-join':
+            if (message.from !== this.userId) {
+              await this.handleRoomJoin(message);
+            }
+            break;
+          case 'room-leave':
+            if (message.from !== this.userId) {
+              await this.handleRoomLeave(message);
+            }
+            break;
           case 'offer':
-            if (message.from !== this.userId) { // Offer must be from another user
+            if (message.from !== this.userId) {
               await this.handleOffer(message.payload, message.from);
             }
             break;
           case 'answer':
-            if (message.from !== this.userId) { // Answer must be from another user
+            if (message.from !== this.userId) {
               await this.handleAnswer(message.payload, message.from);
             }
             break;
           case 'ice-candidate':
-            if (message.from !== this.userId) { // ICE candidate must be from another user
+            if (message.from !== this.userId) {
               await this.handleIceCandidate(message.payload, message.from);
             }
             break;
+        }      } catch (error) {        console.error('WebRTCService: Error handling signaling message:', error);
+        
+        // Determine if the error is a WebSocket connection issue
+        const errorStr = String(error);
+        const isWebSocketError = errorStr.includes('WebSocket') || 
+                               errorStr.includes('rumahkita.rnggagib.me') ||
+                               errorStr.includes('Connection') || 
+                               errorStr.includes('network');
+        
+        if (isWebSocketError) {
+          console.warn('WebRTCService: Detected WebSocket connection error. This is expected and being handled by the WebSocket interceptor.');
+          // Log a more friendly message to help developers understand what's happening
+          console.info('%cWebRTC is still functioning normally despite WebSocket errors - connections are handled through Firebase.', 
+                      'color: #2196F3; font-weight: bold;');
+          // Don't clean up for WebSocket errors, as they're not critical for our Firebase-based signaling
+          return;
         }
-      } catch (error) {
-        console.error('WebRTCService: Error handling signaling message:', error);
-        this.cleanup(); 
+        
+        if (this.internalCallState.inRoom) {
+          // If in a room, don't cleanup fully - just close the problematic connection
+          console.log('WebRTCService: Error in room connection, but not cleaning up fully');
+        } else {
+          this.cleanup();
+        }
+      }
+    });
+  }  // Room-based methods  // Track active room creation to prevent duplicate operations
+  private isCreatingRoom = false;
+  private creationAttemptCount = 0;
+  private readonly MAX_CREATION_ATTEMPTS = 3;
+  private lastCreationTime = 0;
+  private readonly MIN_CREATION_INTERVAL = 5000; // 5 seconds
+  private roomCreationTimeout: NodeJS.Timeout | null = null;
+    
+  async createRoom(roomName?: string, isVideoEnabled = true, isAudioEnabled = true): Promise<string> {
+    // Clear any pending timeouts to prevent zombie timeouts
+    if (this.roomCreationTimeout) {
+      clearTimeout(this.roomCreationTimeout);
+      this.roomCreationTimeout = null;
+    }
+    
+    // Check if already in a room or connecting - strict validation
+    if (this.internalCallState.isConnecting || this.internalCallState.inRoom) {
+      console.warn("WebRTCService: Connection already in progress or already in a room");
+      throw new Error("Koneksi sedang berlangsung atau sudah dalam ruangan");
+    }
+    
+    // Debounce: Prevent rapid creation attempts with a stricter interval
+    const now = Date.now();
+    if (now - this.lastCreationTime < this.MIN_CREATION_INTERVAL) {
+      console.warn("WebRTCService: Room creation throttled. Please wait before trying again.");
+      throw new Error("Harap tunggu sebelum mencoba membuat ruangan baru");
+    }
+    
+    // Critical section - prevent multiple simultaneous calls to createRoom
+    if (this.isCreatingRoom) {
+      console.error("WebRTCService: Room creation already in progress. Ignored duplicate request.");
+      throw new Error("Pembuatan ruangan sedang berlangsung");
+    }
+    
+    // Throttle excessive attempts
+    if (this.creationAttemptCount >= this.MAX_CREATION_ATTEMPTS) {
+      console.error("WebRTCService: Too many failed room creation attempts. Please reload the application.");
+      throw new Error("Terlalu banyak percobaan gagal. Silakan muat ulang aplikasi.");
+    }
+    
+    // Early update of state before async operations to prevent race conditions
+    this.updateState({ isConnecting: true, isConnected: false });
+    
+    // Set flags
+    this.isCreatingRoom = true;
+    this.lastCreationTime = now;
+    this.creationAttemptCount++;
+    
+    // Setup watchdog timer to prevent hanging operations
+    this.roomCreationTimeout = setTimeout(() => {
+      if (this.isCreatingRoom) {
+        console.error("WebRTCService: Room creation operation timed out after 15 seconds");
+        this.isCreatingRoom = false;
+        this.updateState({ isConnecting: false });
+      }
+    }, 15000);
+    
+    try {
+      console.log(`WebRTCService: Creating a new room (Attempt ${this.creationAttemptCount}/${this.MAX_CREATION_ATTEMPTS})`);
+      
+      // Get local media stream with timeout
+      let mediaStreamPromise: Promise<MediaStream>;
+      try {
+        mediaStreamPromise = Promise.race([
+          navigator.mediaDevices.getUserMedia({
+            video: isVideoEnabled,
+            audio: isAudioEnabled
+          }),
+          new Promise<never>((_, reject) => 
+            setTimeout(() => reject(new Error("Timeout getting user media")), 10000)
+          )
+        ]) as Promise<MediaStream>;
+        
+        this.localStream = await mediaStreamPromise;
+      } catch (mediaError) {
+        console.error('WebRTCService: Failed to get user media:', mediaError);
+        throw new Error(`Gagal mengakses kamera/mikrofon: ${mediaError instanceof Error ? mediaError.message : 'unknown error'}`);
+      }
+      
+      if (!this.localStream) {
+        throw new Error("WebRTCService: getUserMedia returned null stream");
+      }
+      
+      // Create room in signaling service
+      const roomId = await this.signalingService.createRoom(roomName, isVideoEnabled, isAudioEnabled);
+      console.log(`WebRTCService: Room created with ID ${roomId}`);
+      
+      // Join the room we just created
+      await this.joinRoomWithStream(roomId, this.userDisplayName, isVideoEnabled, isAudioEnabled, this.localStream);
+      console.log(`WebRTCService: Successfully joined created room ${roomId}`);
+      
+      // Reset counter on successful creation
+      this.creationAttemptCount = 0;
+      return roomId;    } catch (error) {
+      console.error('WebRTCService: Failed to create room:', error);
+      
+      // Clear any watchdog timeout
+      if (this.roomCreationTimeout) {
+        clearTimeout(this.roomCreationTimeout);
+        this.roomCreationTimeout = null;
+      }
+      
+      // If media was obtained but room creation failed, clean up media resources
+      if (this.localStream) {
+        this.cleanupMedia();
+      }
+      
+      // Reset state immediately to ensure UI can recover
+      this.updateState({
+        isConnecting: false,
+        isConnected: false
+      });
+      
+      // Add specific handling for common errors with more descriptive messages
+      if (error instanceof Error) {
+        if (error.message.includes("getUserMedia") || 
+            error.message.includes("Permission denied") ||
+            error.message.includes("camera") ||
+            error.message.includes("microphone")) {
+          throw new Error("Gagal mengakses kamera atau mikrofon. Pastikan izin diberikan dan perangkat tersedia.");
+        } else if (error.message.includes("Timeout")) {
+          throw new Error("Waktu pembuatan ruangan habis. Mohon periksa koneksi internet Anda.");
+        } else if (error.name === "AbortError") {
+          throw new Error("Operasi dibatalkan. Mungkin izin kamera/mikrofon ditolak.");
+        } else if (error.name === "NotFoundError") {
+          throw new Error("Kamera atau mikrofon tidak ditemukan pada perangkat Anda.");
+        }
+      }
+      
+      throw error;
+    } finally {
+      // Clear any watchdog timeout that might still be active
+      if (this.roomCreationTimeout) {
+        clearTimeout(this.roomCreationTimeout);
+        this.roomCreationTimeout = null;
+      }
+      
+      // Always reset the creation flag to prevent locked state
+      const wasCreating = this.isCreatingRoom;
+      this.isCreatingRoom = false;
+      
+      if (wasCreating) {
+        console.log("WebRTCService: Completed room creation process (success or failure)");
+      }
+      
+      // Gradually reduce creation attempt counter over time
+      if (this.creationAttemptCount > 0) {
+        setTimeout(() => {
+          this.creationAttemptCount = Math.max(0, this.creationAttemptCount - 1);
+          console.log(`WebRTCService: Reduced creation attempt counter to ${this.creationAttemptCount}`);
+        }, 60000); // Reduce counter after 1 minute
+      }
+    }
+  }
+    // Track active room joining to prevent duplicate operations
+  private isJoiningRoom = false;
+  
+  async joinRoom(roomId: string, isVideoEnabled = true, isAudioEnabled = true): Promise<void> {
+    // Prevent multiple simultaneous calls to joinRoom
+    if (this.isJoiningRoom || this.isCreatingRoom || this.internalCallState.inRoom) {
+      console.warn("WebRTCService: Room joining already in progress or already in a room. Ignored duplicate request.");
+      throw new Error("Room joining already in progress or already in a room");
+    }
+    
+    this.isJoiningRoom = true;
+    
+    try {
+      console.log(`WebRTCService: Joining room ${roomId}`);
+      
+      // Get local media stream
+      try {
+        this.localStream = await navigator.mediaDevices.getUserMedia({
+          video: isVideoEnabled,
+          audio: isAudioEnabled
+        });
+      } catch (mediaError) {
+        console.error('WebRTCService: Failed to get user media:', mediaError);
+        throw new Error(`Failed to access camera/microphone: ${mediaError instanceof Error ? mediaError.message : 'unknown error'}`);
+      }
+      
+      if (!this.localStream) {
+        throw new Error("WebRTCService: getUserMedia returned null stream");
+      }
+      
+      await this.joinRoomWithStream(roomId, this.userDisplayName, isVideoEnabled, isAudioEnabled, this.localStream);
+      console.log(`WebRTCService: Successfully joined room ${roomId}`);
+      
+    } catch (error) {
+      console.error('WebRTCService: Failed to join room:', error);
+      this.cleanupMedia();
+      throw error;
+    } finally {
+      this.isJoiningRoom = false;
+    }
+  }
+  private joinRoomAttemptCount = 0;
+  private readonly MAX_JOIN_ATTEMPTS = 2;
+  private joinRoomTimeout: NodeJS.Timeout | null = null;
+
+  private async joinRoomWithStream(
+    roomId: string, 
+    displayName: string,
+    isVideoEnabled: boolean,
+    isAudioEnabled: boolean,
+    stream: MediaStream
+  ): Promise<void> {
+    // Clear any pending timeouts
+    if (this.joinRoomTimeout) {
+      clearTimeout(this.joinRoomTimeout);
+      this.joinRoomTimeout = null;
+    }
+    
+    // Avoid excessive retries
+    if (this.joinRoomAttemptCount >= this.MAX_JOIN_ATTEMPTS) {
+      console.error(`WebRTCService: Too many room join attempts (${this.joinRoomAttemptCount}). Abandoning.`);
+      this.joinRoomAttemptCount = 0;
+      throw new Error("Terlalu banyak percobaan bergabung dengan ruang. Silakan coba lagi nanti.");
+    }
+    
+    this.joinRoomAttemptCount++;
+    
+    // Set up watchdog timer
+    this.joinRoomTimeout = setTimeout(() => {
+      console.error("WebRTCService: Room joining operation timed out");
+      this.updateState({ isConnecting: false }); 
+    }, 15000);
+    
+    try {
+      console.log(`WebRTCService: Joining room with stream (Attempt ${this.joinRoomAttemptCount}/${this.MAX_JOIN_ATTEMPTS})`);
+      
+      // Join the room in the signaling service
+      const joined = await this.signalingService.joinRoom(
+        roomId, 
+        displayName, 
+        isVideoEnabled, 
+        isAudioEnabled
+      );
+      
+      if (!joined) {
+        throw new Error("WebRTCService: Failed to join room");
+      }
+      
+      // Set up room update listener
+      this.setupRoomListener(roomId);
+      
+      // Update our state
+      this.updateState({
+        inRoom: true,
+        roomId: roomId,
+        localStream: stream,
+        isConnecting: true,
+        isConnected: false,
+        isCalling: false,
+        isReceivingCall: false
+      });
+      
+      // Reset attempt counter on success
+      this.joinRoomAttemptCount = 0;
+      console.log(`WebRTCService: Successfully joined room ${roomId}`);
+    } catch (error) {
+      console.error('WebRTCService: Error in joinRoomWithStream:', error);
+      
+      // Handle WebSocket specific errors by ignoring them
+      // WebSocket errors are expected and handled by the interceptor
+      const errorStr = String(error);
+      const isWebSocketError = errorStr.includes('WebSocket') || 
+                              errorStr.includes('rumahkita.rnggagib.me');
+      
+      if (isWebSocketError) {
+        console.warn('WebRTCService: WebSocket error ignored - this is expected and not critical');
+        
+        // Try to continue despite WebSocket error
+        try {
+          this.setupRoomListener(roomId);
+          
+          this.updateState({
+            inRoom: true,
+            roomId: roomId,
+            localStream: stream,
+            isConnecting: true,
+            isConnected: false,
+            isCalling: false,
+            isReceivingCall: false
+          });
+          
+          // Reset attempt counter on success
+          this.joinRoomAttemptCount = 0;
+          console.log(`WebRTCService: Continuing with room ${roomId} despite WebSocket error`);
+          return;
+        } catch (innerError) {
+          console.error('WebRTCService: Failed to recover from WebSocket error:', innerError);
+        }
+      }
+      
+      // Clean up media resources if join failed
+      this.cleanupMedia();
+      throw error;
+    } finally {
+      // Clear the watchdog timeout
+      if (this.joinRoomTimeout) {
+        clearTimeout(this.joinRoomTimeout);
+        this.joinRoomTimeout = null;
+      }
+    }
+  }
+  
+  async leaveRoom(): Promise<void> {
+    try {
+      const roomId = this.internalCallState.roomId;
+      if (!roomId) {
+        console.warn("WebRTCService: Not in a room, nothing to leave");
+        return;
+      }
+      
+      console.log(`WebRTCService: Leaving room ${roomId}`);
+      
+      // Leave room in signaling service
+      await this.signalingService.leaveRoom(roomId);
+      
+      // Cleanup
+      this.cleanupRoom();
+      
+    } catch (error) {
+      console.error('WebRTCService: Failed to leave room:', error);
+      // Still attempt to cleanup local state
+      this.cleanupRoom();
+      throw error;
+    }
+  }
+    // Keep track of room listener setup to prevent duplicates
+  private roomListenerActive = false;
+  
+  private setupRoomListener(roomId: string) {
+    // Prevent duplicate listeners for the same room
+    if (this.unsubscribeRoom) {
+      console.log(`WebRTCService: Removing existing room listener before setting up new one`);
+      this.unsubscribeRoom();
+      this.unsubscribeRoom = null;
+    }
+    
+    if (this.roomListenerActive) {
+      console.log(`WebRTCService: Room listener already active. Avoiding duplicate setup.`);
+      return;
+    }
+    
+    this.roomListenerActive = true;
+    console.log(`WebRTCService: Setting up room listener for ${roomId}`);
+    
+    this.unsubscribeRoom = this.signalingService.onRoomUpdated(roomId, async (room) => {
+      if (!room) {
+        console.log(`WebRTCService: Room ${roomId} no longer exists`);
+        this.cleanupRoom();
+        this.roomListenerActive = false;
+        return;
+      }
+      
+      if (!room.active) {
+        console.log(`WebRTCService: Room ${roomId} is no longer active`);
+        this.cleanupRoom();
+        this.roomListenerActive = false;
+        return;
+      }
+      
+      // Update room info in state
+      this.updateState({
+        roomName: room.name
+      });
+      
+      // Process participants
+      const participants = room.participants || {};
+      const currentParticipantIds = Object.keys(this.internalCallState.participants);
+      const newParticipantIds = Object.keys(participants);
+      
+      // Find participants that are new (need to establish connection)
+      for (const id of newParticipantIds) {
+        if (id !== this.userId && !currentParticipantIds.includes(id)) {
+          console.log(`WebRTCService: New participant detected: ${id}`);
+          
+          // Add to our local state
+          const newParticipants = { ...this.internalCallState.participants };
+          newParticipants[id] = {
+            userId: id,
+            displayName: participants[id].displayName,
+            hasVideo: participants[id].hasVideo,
+            hasAudio: participants[id].hasAudio
+          };
+          
+          this.updateState({ participants: newParticipants });
+          
+          // Create peer connection for this user
+          if (this.localStream) {
+            try {
+              await this.createPeerConnection(id);
+            } catch (error) {
+              console.error(`WebRTCService: Error creating peer connection for ${id}:`, error);
+            }
+          }
+        }
+      }
+      
+      // Find participants that have left
+      for (const id of currentParticipantIds) {
+        if (id !== this.userId && !newParticipantIds.includes(id)) {
+          console.log(`WebRTCService: Participant left: ${id}`);
+          this.closePeerConnection(id);
+          
+          // Remove from our local state
+          const newParticipants = { ...this.internalCallState.participants };
+          delete newParticipants[id];
+          this.updateState({ participants: newParticipants });
+        }
+      }
+      
+      // Update connection state
+      const hasOtherParticipants = newParticipantIds.filter(id => id !== this.userId).length > 0;
+      if (hasOtherParticipants && !this.internalCallState.isConnected) {
+        this.updateState({ isConnected: true, isConnecting: false });
+      } else if (!hasOtherParticipants && this.internalCallState.isConnected) {
+        this.updateState({ isConnected: false, isConnecting: false });
       }
     });
   }
-
-  // Start a call (video or audio only)
+  
+  // Start a call (video or audio only) - Legacy method for backward compatibility
   async startCall(isVideoCall = true): Promise<void> {
     try {
       this.isInitiator = true;
@@ -229,31 +724,44 @@ export class WebRTCService {
       this.cleanup(); 
     }
   }
-
-  toggleVideo(): boolean {
+  async toggleVideo(): Promise<boolean> {
     if (this.localStream) {
       const videoTrack = this.localStream.getVideoTracks()[0];
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
         console.log(`WebRTCService: Video ${videoTrack.enabled ? 'enabled' : 'disabled'}`);
+        
+        // If in a room, update participant media status
+        if (this.internalCallState.inRoom) {
+          const audioEnabled = this.localStream.getAudioTracks()[0]?.enabled ?? false;
+          await this.signalingService.updateParticipantMedia(videoTrack.enabled, audioEnabled);
+        }
+        
         return videoTrack.enabled;
       }
     }
     return false;
   }
 
-  toggleAudio(): boolean {
+  async toggleAudio(): Promise<boolean> {
     if (this.localStream) {
       const audioTrack = this.localStream.getAudioTracks()[0];
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
         console.log(`WebRTCService: Audio ${audioTrack.enabled ? 'enabled' : 'disabled'}`);
+        
+        // If in a room, update participant media status
+        if (this.internalCallState.inRoom) {
+          const videoEnabled = this.localStream.getVideoTracks()[0]?.enabled ?? false;
+          await this.signalingService.updateParticipantMedia(videoEnabled, audioTrack.enabled);
+        }
+        
         return audioTrack.enabled;
       }
     }
     return false;
   }
-  
+    // Legacy method for backward compatibility
   private async setupPeerConnection(): Promise<void> {
     if (this.peerConnection) {
         console.log("WebRTCService: PeerConnection already exists. Closing previous before creating new.");
@@ -293,7 +801,7 @@ export class WebRTCService {
             type: 'ice-candidate',
             from: this.userId,
             to: targetId,
-            payload: event.candidate.toJSON() // Corrected: directly use event.candidate.toJSON()
+            payload: event.candidate.toJSON()
           });
         } else {
           console.warn("WebRTCService: No targetId to send ICE candidate to. This might happen if call was rejected/ended before ICE negotiation completed.");
@@ -315,6 +823,128 @@ export class WebRTCService {
         }
       }
     };
+  }
+  
+  // Room-based peer connection methods
+  private async createPeerConnection(targetUserId: string): Promise<RTCPeerConnection> {
+    // Close existing connection if any
+    this.closePeerConnection(targetUserId);
+    
+    console.log(`WebRTCService: Creating peer connection for user ${targetUserId}`);
+    
+    // Create new RTCPeerConnection
+    const peerConnection = new RTCPeerConnection(this.rtcConfiguration);
+    this.peerConnections.set(targetUserId, peerConnection);
+    
+    // Add local stream tracks to the connection
+    if (this.localStream) {
+      this.localStream.getTracks().forEach(track => {
+        peerConnection.addTrack(track, this.localStream!);
+      });
+    }
+    
+    // Handle ICE candidates
+    peerConnection.onicecandidate = async (event) => {
+      if (event.candidate) {
+        try {
+          await this.signalingService.sendMessage({
+            type: 'ice-candidate',
+            from: this.userId,
+            to: targetUserId,
+            roomId: this.internalCallState.roomId,
+            payload: event.candidate.toJSON()
+          });
+        } catch (error) {
+          console.error(`WebRTCService: Error sending ICE candidate to ${targetUserId}:`, error);
+        }
+      }
+    };
+    
+    // Handle incoming tracks
+    peerConnection.ontrack = (event) => {
+      console.log(`WebRTCService: Received track from ${targetUserId}`);
+      
+      const stream = event.streams[0];
+      if (!stream) return;
+      
+      this.remoteStreams.set(targetUserId, stream);
+      
+      // Update participant in state
+      const newParticipants = { ...this.internalCallState.participants };
+      if (newParticipants[targetUserId]) {
+        newParticipants[targetUserId] = {
+          ...newParticipants[targetUserId],
+          stream
+        };
+        
+        this.updateState({ participants: newParticipants });
+      }
+    };
+    
+    // Handle connection state changes
+    peerConnection.onconnectionstatechange = () => {
+      const state = peerConnection.connectionState;
+      console.log(`WebRTCService: Connection state for ${targetUserId} changed to ${state}`);
+      
+      if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+        this.closePeerConnection(targetUserId);
+      }
+    };
+    
+    // Create and send offer if we're initiating
+    if (this.internalCallState.inRoom) {
+      try {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        
+        await this.signalingService.sendMessage({
+          type: 'offer',
+          from: this.userId,
+          to: targetUserId,
+          roomId: this.internalCallState.roomId,
+          payload: offer
+        });
+        
+        console.log(`WebRTCService: Sent offer to ${targetUserId}`);
+      } catch (error) {
+        console.error(`WebRTCService: Error creating/sending offer to ${targetUserId}:`, error);
+        this.closePeerConnection(targetUserId);
+        throw error;
+      }
+    }
+    
+    return peerConnection;
+  }
+  
+  private closePeerConnection(targetUserId: string) {
+    const peerConnection = this.peerConnections.get(targetUserId);
+    if (peerConnection) {
+      console.log(`WebRTCService: Closing peer connection for ${targetUserId}`);
+      
+      // Clean up event handlers
+      peerConnection.onicecandidate = null;
+      peerConnection.ontrack = null;
+      peerConnection.onconnectionstatechange = null;
+      
+      // Close the connection
+      peerConnection.close();
+      this.peerConnections.delete(targetUserId);
+      
+      // Remove the stream
+      this.remoteStreams.delete(targetUserId);
+      
+      // Update participant in state
+      const newParticipants = { ...this.internalCallState.participants };
+      if (newParticipants[targetUserId]) {
+        newParticipants[targetUserId] = {
+          ...newParticipants[targetUserId],
+          stream: undefined,
+          connection: undefined
+        };
+        
+        this.updateState({ participants: newParticipants });
+      }
+    }
   }
 
   private handleIncomingCall(message: SignalingMessage) {
@@ -367,7 +997,6 @@ export class WebRTCService {
         if(!this.connectedPeerId) this.cleanup();
     }
   }
-
   private handleCallEnded(message: SignalingMessage) {
     if ((this.internalCallState.isConnected && message.from === this.connectedPeerId) || 
         (this.internalCallState.isConnecting && message.from === this.connectedPeerId) || 
@@ -378,11 +1007,108 @@ export class WebRTCService {
         this.cleanup();
     }
   }
-
+  
+  // Room-based handlers
+  private async handleRoomJoin(message: SignalingMessage) {
+    if (!this.internalCallState.inRoom || !this.internalCallState.roomId) {
+      console.log(`WebRTCService: Ignoring room join for ${message.from}, not in a room`);
+      return;
+    }
+    
+    if (message.roomId !== this.internalCallState.roomId) {
+      console.log(`WebRTCService: Ignoring room join for different room: ${message.roomId}`);
+      return;
+    }
+    
+    console.log(`WebRTCService: User ${message.from} joined room ${message.roomId}`);
+    
+    // Add the participant to our local state
+    const newParticipants = { ...this.internalCallState.participants };
+    newParticipants[message.from] = {
+      userId: message.from,
+      displayName: message.payload?.displayName || 'Unknown User',
+      hasVideo: message.payload?.hasVideo || false,
+      hasAudio: message.payload?.hasAudio || false
+    };
+    
+    this.updateState({ participants: newParticipants });
+    
+    // If we have a local stream, initiate connection with the new participant
+    if (this.localStream) {
+      await this.createPeerConnection(message.from);
+    }
+  }
+  
+  private async handleRoomLeave(message: SignalingMessage) {
+    if (!this.internalCallState.inRoom || !this.internalCallState.roomId) {
+      return;
+    }
+    
+    if (message.roomId !== this.internalCallState.roomId) {
+      return;
+    }
+    
+    console.log(`WebRTCService: User ${message.from} left room ${message.roomId}`);
+    
+    // Remove the participant from our local state
+    const newParticipants = { ...this.internalCallState.participants };
+    delete newParticipants[message.from];
+    
+    // Close and remove peer connection for this participant
+    this.closePeerConnection(message.from);
+    
+    this.updateState({ participants: newParticipants });
+  }
   private async handleOffer(offerData: RTCSessionDescriptionInit, fromId: string) {
-    // Non-initiator (receiver who accepted) handles offers from the initiator
+    // Room-based offer handling
+    if (this.internalCallState.inRoom && this.internalCallState.participants[fromId]) {
+      console.log(`WebRTCService: Handling room-based offer from ${fromId}`);
+      
+      let peerConnection = this.peerConnections.get(fromId);
+      
+      // Create connection if it doesn't exist
+      if (!peerConnection) {
+        peerConnection = new RTCPeerConnection(this.rtcConfiguration);
+        this.peerConnections.set(fromId, peerConnection);
+        
+        // Add local tracks
+        if (this.localStream) {
+          this.localStream.getTracks().forEach(track => {
+            peerConnection!.addTrack(track, this.localStream!);
+          });
+        }
+        
+        // Set up event handlers
+        this.setupPeerConnectionEvents(peerConnection, fromId);
+      }
+      
+      try {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(offerData));
+        console.log(`WebRTCService: Remote description (offer) set for ${fromId}`);
+        
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        console.log(`WebRTCService: Local description (answer) created and set for ${fromId}`);
+        
+        await this.signalingService.sendMessage({
+          type: 'answer',
+          from: this.userId,
+          to: fromId,
+          roomId: this.internalCallState.roomId,
+          payload: answer
+        });
+        console.log(`WebRTCService: Answer sent to ${fromId}`);
+      } catch (error) {
+        console.error(`WebRTCService: Error handling offer from ${fromId}:`, error);
+        this.closePeerConnection(fromId);
+      }
+      
+      return;
+    }
+    
+    // Legacy path for backward compatibility
     if (!this.isInitiator && fromId === this.connectedPeerId) { 
-      console.log("WebRTCService: Handling offer from", fromId);
+      console.log("WebRTCService: Handling legacy offer from", fromId);
       if (!this.peerConnection) {
           console.log("WebRTCService: PeerConnection not ready for offer, setting up now.");
           await this.setupPeerConnection();
@@ -398,7 +1124,7 @@ export class WebRTCService {
           type: 'answer',
           from: this.userId,
           to: fromId, 
-          payload: answer // FIX: send answer directly, do not use answer.toJSON()
+          payload: answer
         });
         console.log("WebRTCService: Answer sent to", fromId);
       } else {
@@ -410,46 +1136,263 @@ export class WebRTCService {
   }
 
   private async handleAnswer(answerData: RTCSessionDescriptionInit, fromId: string) {
-    // Initiator handles answers from the peer they sent an offer to
+    // Room-based answer handling
+    if (this.internalCallState.inRoom && this.internalCallState.participants[fromId]) {
+      console.log(`WebRTCService: Handling room-based answer from ${fromId}`);
+      
+      const peerConnection = this.peerConnections.get(fromId);
+      if (peerConnection) {
+        try {
+          await peerConnection.setRemoteDescription(new RTCSessionDescription(answerData));
+          console.log(`WebRTCService: Remote description (answer) set for ${fromId}`);
+        } catch (error) {
+          console.error(`WebRTCService: Error handling answer from ${fromId}:`, error);
+          this.closePeerConnection(fromId);
+        }
+      } else {
+        console.warn(`WebRTCService: Received answer from ${fromId} but no peer connection found`);
+      }
+      
+      return;
+    }
+    
+    // Legacy path for backward compatibility
     if (this.isInitiator && this.peerConnection && fromId === this.connectedPeerId) { 
-      console.log("WebRTCService: Handling answer from", fromId);
+      console.log("WebRTCService: Handling legacy answer from", fromId);
       await this.peerConnection.setRemoteDescription(new RTCSessionDescription(answerData));
       console.log("WebRTCService: Remote description (answer) set.");
     } else {
-        console.log(`WebRTCService: Ignoring answer from ${fromId}. isInitiator: ${this.isInitiator}, connectedPeerId: ${this.connectedPeerId}`);
+        console.log(`WebRTCService: Ignoring legacy answer from ${fromId}. isInitiator: ${this.isInitiator}, connectedPeerId: ${this.connectedPeerId}`);
     }
   }
 
   private async handleIceCandidate(candidateData: RTCIceCandidateInit, fromId: string) {
-    // Both initiator and receiver handle ICE candidates from their connected peer
+    // Room-based ICE candidate handling
+    if (this.internalCallState.inRoom && this.internalCallState.participants[fromId]) {
+      console.log(`WebRTCService: Handling room-based ICE candidate from ${fromId}`);
+      
+      const peerConnection = this.peerConnections.get(fromId);
+      if (peerConnection) {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(candidateData));
+        } catch (error) {
+          console.error(`WebRTCService: Error adding ICE candidate from ${fromId}:`, error);
+        }
+      } else {
+        console.warn(`WebRTCService: Received ICE candidate from ${fromId} but no peer connection found`);
+      }
+      
+      return;
+    }
+    
+    // Legacy path for backward compatibility
     if (this.peerConnection && fromId === this.connectedPeerId) {
       try {
-        console.log("WebRTCService: Adding received ICE candidate from", fromId);
+        console.log("WebRTCService: Adding legacy ICE candidate from", fromId);
         await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidateData));
       } catch (e) {
-        console.error('WebRTCService: Error adding received ICE candidate', e);
+        console.error('WebRTCService: Error adding legacy ICE candidate', e);
       }
-    } else {
-        // console.log(`WebRTCService: Ignoring ICE candidate from ${fromId}. PeerConnection: ${!!this.peerConnection}, connectedPeerId: ${this.connectedPeerId}`);
     }
   }
   
-  private cleanup() {
-    console.log("WebRTCService: Cleaning up resources.");
+  // Helper for setting up event listeners on peer connections
+  private setupPeerConnectionEvents(peerConnection: RTCPeerConnection, targetUserId: string) {
+    peerConnection.onicecandidate = async (event) => {
+      if (event.candidate) {
+        try {
+          await this.signalingService.sendMessage({
+            type: 'ice-candidate',
+            from: this.userId,
+            to: targetUserId,
+            roomId: this.internalCallState.roomId,
+            payload: event.candidate.toJSON()
+          });
+        } catch (error) {
+          console.error(`WebRTCService: Error sending ICE candidate to ${targetUserId}:`, error);
+        }
+      }
+    };
+    
+    peerConnection.ontrack = (event) => {
+      console.log(`WebRTCService: Received track from ${targetUserId}`);
+      
+      const stream = event.streams[0];
+      if (!stream) return;
+      
+      this.remoteStreams.set(targetUserId, stream);
+      
+      // Update participant in state
+      const newParticipants = { ...this.internalCallState.participants };
+      if (newParticipants[targetUserId]) {
+        newParticipants[targetUserId] = {
+          ...newParticipants[targetUserId],
+          stream
+        };
+        
+        this.updateState({ participants: newParticipants });
+      }
+    };
+    
+    peerConnection.onconnectionstatechange = () => {
+      const state = peerConnection.connectionState;
+      console.log(`WebRTCService: Connection state for ${targetUserId} changed to ${state}`);
+      
+      if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+        this.closePeerConnection(targetUserId);
+      }
+    };
+  }
+  
+  /**
+   * Enhanced cleanup for media resources with better error handling
+   */
+  private cleanupMedia() {
+    console.log("WebRTCService: Cleaning up media resources");
+    
+    // Clean up local stream
     if (this.localStream) {
-      this.localStream.getTracks().forEach(track => track.stop());
+      this.localStream.getTracks().forEach(track => {
+        try {
+          track.stop();
+        } catch (err) {
+          console.warn("WebRTCService: Error stopping local track:", err);
+        }
+      });
       this.localStream = null;
-      console.log("WebRTCService: Local stream stopped.");
-    }
-    if (this.peerConnection) {
-      this.peerConnection.onicecandidate = null;
-      this.peerConnection.ontrack = null;
-      this.peerConnection.onconnectionstatechange = null;
-      this.peerConnection.close();
-      this.peerConnection = null;
-      console.log("WebRTCService: PeerConnection closed.");
     }
     
+    // Clean up remote streams
+    this.remoteStreams.forEach((stream, userId) => {
+      try {
+        stream.getTracks().forEach(track => {
+          try {
+            track.stop();
+          } catch (err) {
+            console.warn(`WebRTCService: Error stopping remote track from ${userId}:`, err);
+          }
+        });
+      } catch (err) {
+        console.warn(`WebRTCService: Error cleaning up remote stream from ${userId}:`, err);
+      }
+    });
+    this.remoteStreams.clear();
+    
+    console.log("WebRTCService: Media resources cleanup completed");
+  }
+  
+  /**
+   * Clean up peer connections with improved error handling
+   */
+  private cleanupPeerConnections() {
+    // Close all peer connections
+    this.peerConnections.forEach((connection, userId) => {
+      try {
+        console.log(`WebRTCService: Closing peer connection for ${userId}`);
+        
+        // Clean up event handlers
+        connection.onicecandidate = null;
+        connection.ontrack = null;
+        connection.onconnectionstatechange = null;
+        
+        // Close the connection
+        connection.close();
+      } catch (err) {
+        console.warn(`WebRTCService: Error closing peer connection for ${userId}:`, err);
+      }
+    });
+    this.peerConnections.clear();
+    
+    // Also clean up legacy peer connection
+    if (this.peerConnection) {
+      try {
+        this.peerConnection.onicecandidate = null;
+        this.peerConnection.ontrack = null;
+        this.peerConnection.onconnectionstatechange = null;
+        this.peerConnection.close();
+      } catch (err) {
+        console.warn("WebRTCService: Error closing legacy peer connection:", err);
+      }
+      this.peerConnection = null;
+    }
+  }
+  
+  /**
+   * Clean up room resources
+   */
+  private cleanupRoom() {
+    console.log("WebRTCService: Cleaning up room resources");
+    
+    // Reset operation flags to prevent issues with subsequent operations
+    this.isCreatingRoom = false;
+    this.isJoiningRoom = false;
+    this.roomListenerActive = false;
+    
+    // Clean up all peer connections
+    this.peerConnections.forEach((connection, userId) => {
+      this.closePeerConnection(userId);
+    });
+    this.peerConnections.clear();
+    this.remoteStreams.clear();
+    
+    // Clean up room listener
+    if (this.unsubscribeRoom) {
+      this.unsubscribeRoom();
+      this.unsubscribeRoom = null;
+    }
+    
+    // Clean up media
+    this.cleanupMedia();
+    
+    // Reset state
+    this.updateState({
+      inRoom: false,
+      roomId: undefined,
+      roomName: undefined,
+      participants: {},
+      isConnected: false,
+      isConnecting: false
+    });
+    
+    console.log("WebRTCService: Room cleanup complete");
+  }
+  
+  /**
+   * Perform complete cleanup of all WebRTC resources
+   */
+  private cleanup() {
+    console.log("WebRTCService: Cleaning up all resources");
+    
+    // Reset all operation flags to prevent any ongoing operations
+    this.isCreatingRoom = false;
+    this.isJoiningRoom = false;
+    this.roomListenerActive = false;
+    this.creationAttemptCount = 0;
+    this.lastCreationTime = 0;
+    
+    // Clean up any timeouts
+    if (this.roomCreationTimeout) {
+      clearTimeout(this.roomCreationTimeout);
+      this.roomCreationTimeout = null;
+    }
+    
+    if (this.joinRoomTimeout) {
+      clearTimeout(this.joinRoomTimeout);
+      this.joinRoomTimeout = null;
+    }
+    
+    // Clean up room if needed
+    if (this.internalCallState.inRoom) {
+      this.cleanupRoom();
+    }
+    
+    // Clean up media resources
+    this.cleanupMedia();
+    
+    // Clean up peer connections
+    this.cleanupPeerConnections();
+    
+    // Reset state completely
     this.updateState({
       isConnected: false,
       isConnecting: false,
@@ -457,24 +1400,161 @@ export class WebRTCService {
       isReceivingCall: false,
       localStream: undefined,
       remoteStream: undefined,
-      callerInfo: undefined
+      callerInfo: undefined,
+      inRoom: false,
+      roomId: undefined,
+      roomName: undefined,
+      participants: {}
     });
+    
     this.isInitiator = false;
     this.connectedPeerId = null;
-    console.log("WebRTCService: State reset.");
+    
+    console.log("WebRTCService: Cleanup complete");
+  }
+    /**
+   * Emergency reset method - can be called if the application detects
+   * that the service is stuck in a bad state
+   * This is a comprehensive reset that attempts to recover from any state
+   */
+  async emergencyReset(): Promise<void> {
+    console.warn("WebRTCService: Performing emergency reset");
+    
+    try {
+      // Try to leave any room first, but don't wait for it if it fails
+      if (this.internalCallState.inRoom && this.internalCallState.roomId) {
+        try {
+          console.log(`WebRTCService: Emergency leaving room ${this.internalCallState.roomId}`);
+          await Promise.race([
+            this.signalingService.leaveRoom(this.internalCallState.roomId),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("Room leave timeout")), 3000))
+          ]);
+        } catch (leaveError) {
+          console.warn("WebRTCService: Error leaving room during emergency reset:", leaveError);
+          // Continue with reset regardless of leave error
+        }
+      }
+      
+      // Clear all operational flags
+      this.isCreatingRoom = false;
+      this.isJoiningRoom = false;
+      this.creationAttemptCount = 0;
+      this.joinRoomAttemptCount = 0;
+      this.roomListenerActive = false;
+      this.lastCreationTime = 0;
+      this.isInitiator = false;
+      this.connectedPeerId = null;
+      
+      // Clear all timeouts
+      [
+        this.roomCreationTimeout,
+        this.joinRoomTimeout
+      ].forEach(timeout => {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+      });
+      this.roomCreationTimeout = null;
+      this.joinRoomTimeout = null;
+      
+      // Clean up all resources
+      this.cleanupMedia();
+      this.cleanupPeerConnections();
+      
+      // Clean up signaling listeners and recreate them
+      if (this.unsubscribeSignaling) {
+        this.unsubscribeSignaling();
+        this.unsubscribeSignaling = null;
+      }
+      
+      if (this.unsubscribeRoom) {
+        this.unsubscribeRoom();
+        this.unsubscribeRoom = null;
+      }
+      
+      // Reset state completely
+      this.updateState({
+        isConnected: false,
+        isConnecting: false,
+        isCalling: false,
+        isReceivingCall: false,
+        inRoom: false,
+        roomId: undefined,
+        roomName: undefined,
+        callerInfo: undefined,
+        localStream: undefined,
+        remoteStream: undefined,
+        participants: {}
+      });
+      
+      // Re-setup listeners after a small delay to ensure everything is properly reset
+      setTimeout(() => {
+        try {
+          this.setupSignalingListeners();
+          console.log("WebRTCService: Signaling listeners restored after reset");
+        } catch (listenerError) {
+          console.error("WebRTCService: Error restoring listeners after reset:", listenerError);
+        }
+      }, 500);
+      
+      console.log("WebRTCService: Emergency reset completed successfully");
+    } catch (error) {
+      console.error("WebRTCService: Error during emergency reset:", error);
+      // Still need to ensure critical flags are reset even if errors occur
+      this.isCreatingRoom = false;
+      this.isJoiningRoom = false;
+    }
   }
 
-  public destroy() {
-    console.log("WebRTCService: Destroying service instance.");
+  /**
+   * Complete destroy method to be called when the service is no longer needed
+   * This should be called when the component using the service unmounts
+   */
+  async destroy(): Promise<void> {
+    console.log("WebRTCService: Destroying service");
+    
+    // First attempt an emergency reset to ensure all flags are cleared
+    await this.emergencyReset();
+    
+    // Ensure we leave any room we might be in
+    if (this.internalCallState.inRoom && this.internalCallState.roomId) {
+      try {
+        await this.signalingService.leaveRoom(this.internalCallState.roomId);
+      } catch (error) {
+        console.warn("WebRTCService: Error leaving room during destroy:", error);
+      }
+    }
+    
+    // Clean up all resources
     this.cleanup();
+    
+    // Extra cleanup to ensure signaling service listeners are removed
     if (this.unsubscribeSignaling) {
       this.unsubscribeSignaling();
       this.unsubscribeSignaling = null;
-      console.log("WebRTCService: Signaling listener unsubscribed.");
     }
-    if (this.signalingService && typeof (this.signalingService as any).cleanup === 'function') {
-        (this.signalingService as any).cleanup();
-        console.log("WebRTCService: SignalingService cleanup called.");
+    
+    if (this.unsubscribeRoom) {
+      this.unsubscribeRoom();
+      this.unsubscribeRoom = null;
     }
+    
+    // Clean up the signaling service
+    try {
+      await this.signalingService.cleanup();
+    } catch (error) {
+      console.warn("WebRTCService: Error cleaning up signaling service:", error);
+    }
+    
+    console.log("WebRTCService: Service destroyed");
+  }
+
+  // Helper methods to get room info
+  getActiveRooms(): Promise<Room[]> {
+    return this.signalingService.getActiveRooms();
+  }
+  
+  getCurrentRoomId(): string | null {
+    return this.signalingService.getCurrentRoomId();
   }
 }

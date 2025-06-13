@@ -3,6 +3,10 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
+import { setupWebSocketInterceptor } from './utils/webSocketCheck';
+
+// Setup WebSocket interceptor to prevent connection errors
+setupWebSocketInterceptor();
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
