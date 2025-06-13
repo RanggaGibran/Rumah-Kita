@@ -1,4 +1,9 @@
 import { SignalingService, SignalingMessage, Room } from './signaling';
+import { 
+  checkWebRTCConnectivity, 
+  runDiagnostics, 
+  DiagnosticResults
+} from '../../utils/webrtcDiagnostics';
 
 export interface Participant {
   userId: string;
@@ -26,6 +31,11 @@ export interface CallState {
   roomId?: string;
   roomName?: string;
   participants: Record<string, Participant>;
+
+  // Connection quality and diagnostic information
+  connectionQuality?: 'good' | 'fair' | 'poor';
+  diagnosticMode?: boolean;
+  lastDiagnosticResult?: DiagnosticResults;
 }
 
 export class WebRTCService {
@@ -39,6 +49,7 @@ export class WebRTCService {
   private peerConnections: Map<string, RTCPeerConnection> = new Map();
   private localStream: MediaStream | null = null;
   private remoteStreams: Map<string, MediaStream> = new Map();
+  private connectionMonitors: Map<string, NodeJS.Timeout> = new Map();
   
   private signalingService: SignalingService;
   private onExternalStateChange: (state: CallState) => void;
@@ -47,8 +58,7 @@ export class WebRTCService {
   private userId: string; 
   private userDisplayName: string; 
   private unsubscribeSignaling: (() => void) | null = null;
-  private unsubscribeRoom: (() => void) | null = null;
-  // STUN/TURN servers configuration
+  private unsubscribeRoom: (() => void) | null = null;  // STUN/TURN servers configuration
   private readonly rtcConfiguration: RTCConfiguration = {
     iceServers: [
       // Google's public STUN servers
@@ -61,12 +71,28 @@ export class WebRTCService {
       { urls: 'stun:global.stun.twilio.com:3478?transport=udp' },
       // Additional public STUN servers for redundancy
       { urls: 'stun:stun.stunprotocol.org:3478' },
-      { urls: 'stun:stun.ekiga.net:3478' }
+      { urls: 'stun:stun.ekiga.net:3478' },
+      // Free TURN servers (limited capacity but better than nothing)
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
     ],
     iceCandidatePoolSize: 10,
     bundlePolicy: 'max-bundle',
-    rtcpMuxPolicy: 'require'
+    rtcpMuxPolicy: 'require',
+    iceTransportPolicy: 'all' // Try 'relay' if we continue having issues
   };
+  
+  // ICE gathering configuration
+  private readonly iceGatheringTimeout = 10000; // 10 seconds timeout for ICE gathering
+  private readonly iceConnectionTimeout = 15000; // 15 seconds for connection establishment
   constructor(
     homeId: string,
     userId: string,
@@ -88,6 +114,7 @@ export class WebRTCService {
     };
     this.onExternalStateChange(this.internalCallState); // Initial dispatch
     this.setupSignalingListeners();
+    this.setupNetworkListeners();
   }
 
   private updateState(newState: Partial<CallState>) {
@@ -187,15 +214,15 @@ export class WebRTCService {
         }
       }
     });
-  }  // Room-based methods  // Track active room creation to prevent duplicate operations
+  }  // Room-based methods  // Track active room creation and joining to prevent duplicate operations
   private isCreatingRoom = false;
+  private isJoiningRoom = false;
   private creationAttemptCount = 0;
   private readonly MAX_CREATION_ATTEMPTS = 3;
   private lastCreationTime = 0;
   private readonly MIN_CREATION_INTERVAL = 5000; // 5 seconds
   private roomCreationTimeout: NodeJS.Timeout | null = null;
-    
-  async createRoom(roomName?: string, isVideoEnabled = true, isAudioEnabled = true): Promise<string> {
+      async createRoom(roomName?: string, isVideoEnabled = true, isAudioEnabled = true): Promise<string> {
     // Clear any pending timeouts to prevent zombie timeouts
     if (this.roomCreationTimeout) {
       clearTimeout(this.roomCreationTimeout);
@@ -206,6 +233,12 @@ export class WebRTCService {
     if (this.internalCallState.isConnecting || this.internalCallState.inRoom) {
       console.warn("WebRTCService: Connection already in progress or already in a room");
       throw new Error("Koneksi sedang berlangsung atau sudah dalam ruangan");
+    }
+    
+    // First check network connection before proceeding
+    if (!this.checkNetworkConnection()) {
+      console.error("WebRTCService: Cannot create room while offline");
+      throw new Error("Tidak dapat membuat ruang - perangkat sedang offline. Periksa koneksi internet Anda.");
     }
     
     // Debounce: Prevent rapid creation attempts with a stricter interval
@@ -234,55 +267,147 @@ export class WebRTCService {
     this.isCreatingRoom = true;
     this.lastCreationTime = now;
     this.creationAttemptCount++;
-      // Setup watchdog timer to prevent hanging operations
+    
+    // Setup tiered watchdog timers to provide progressive feedback
+    let initialFeedbackTimeout: NodeJS.Timeout | null = null;
+    let secondaryFeedbackTimeout: NodeJS.Timeout | null = null;
+    
+    // Main watchdog timer to prevent hanging operations
     this.roomCreationTimeout = setTimeout(() => {
       if (this.isCreatingRoom) {
-        console.error("WebRTCService: Room creation operation timed out after 30 seconds");
+        console.error("WebRTCService: Room creation operation timed out after 35 seconds");
         // Additional cleanup to prevent stuck state
         this.isCreatingRoom = false;
         this.updateState({ isConnecting: false });
         // Try to recover from stalled state
         this.emergencyReset().catch(err => console.warn("Error during emergency reset:", err));
       }
-    }, 30000); // Increased from 15 to 30 seconds
+      
+      // Clear other timeouts
+      if (initialFeedbackTimeout) clearTimeout(initialFeedbackTimeout);
+      if (secondaryFeedbackTimeout) clearTimeout(secondaryFeedbackTimeout);
+    }, 35000); // Increased to 35 seconds for more resilience
+    
+    // Early feedback timeout - 8 seconds in
+    initialFeedbackTimeout = setTimeout(() => {
+      if (this.isCreatingRoom) {
+        console.log("WebRTCService: Room creation in progress (early notification)");
+        // This will be handled in VideoCallChat.tsx by showing a waiting message
+      }
+    }, 8000);
+    
+    // Secondary feedback - 20 seconds in
+    secondaryFeedbackTimeout = setTimeout(() => {
+      if (this.isCreatingRoom) {
+        console.log("WebRTCService: Room creation taking longer than expected");
+        // This will be handled in VideoCallChat.tsx by showing a waiting message
+      }
+    }, 20000);
     
     try {
       console.log(`WebRTCService: Creating a new room (Attempt ${this.creationAttemptCount}/${this.MAX_CREATION_ATTEMPTS})`);
       
-      // Get local media stream with timeout
-      let mediaStreamPromise: Promise<MediaStream>;
+      // Check for permissions first with a shorter timeout
       try {
-        mediaStreamPromise = Promise.race([
-          navigator.mediaDevices.getUserMedia({
-            video: isVideoEnabled,
-            audio: isAudioEnabled
-          }),
+        const permissionCheck = await Promise.race([
+          navigator.mediaDevices.getUserMedia({ video: true, audio: true }),
           new Promise<never>((_, reject) => 
-            setTimeout(() => reject(new Error("Timeout getting user media")), 10000)
+            setTimeout(() => reject(new Error("Permission check timeout")), 5000)
           )
-        ]) as Promise<MediaStream>;
+        ]) as MediaStream;
         
-        this.localStream = await mediaStreamPromise;
-      } catch (mediaError) {
-        console.error('WebRTCService: Failed to get user media:', mediaError);
-        throw new Error(`Gagal mengakses kamera/mikrofon: ${mediaError instanceof Error ? mediaError.message : 'unknown error'}`);
+        // Stop the tracks from the permission check
+        permissionCheck.getTracks().forEach(track => track.stop());
+        console.log("WebRTCService: Permission check successful");
+      } catch (permErr) {
+        // If this fails due to a timeout, it's likely not a permission issue
+        if (!(permErr instanceof Error) || !permErr.message.includes("timeout")) {
+          console.error('WebRTCService: Media permission check failed:', permErr);
+          throw new Error(`Gagal mendapatkan izin kamera/mikrofon: ${permErr instanceof Error ? permErr.message : 'unknown error'}`);
+        }
+      }
+        // Get local media stream with improved error handling and retry
+      let mediaStreamPromise: Promise<MediaStream>;
+      let mediaError: any = null;
+      
+      // Try multiple times with different constraints to handle various device capabilities
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          // First try with specified constraints
+          const constraints: MediaStreamConstraints = {
+            video: attempt === 0 ? isVideoEnabled : {facingMode: "user", width: { ideal: 320 }, height: { ideal: 240 }},
+            audio: isAudioEnabled
+          };
+          
+          console.log(`WebRTCService: Attempting to get media (attempt ${attempt + 1}) with constraints:`, constraints);
+          
+          mediaStreamPromise = Promise.race([
+            navigator.mediaDevices.getUserMedia(constraints),
+            new Promise<never>((_, reject) => 
+              setTimeout(() => reject(new Error("Timeout getting user media")), 15000) // 15s timeout
+            )
+          ]) as Promise<MediaStream>;
+          
+          this.localStream = await mediaStreamPromise;
+          console.log("WebRTCService: Successfully acquired media stream");
+          mediaError = null; // Reset error if successful
+          break; // Exit loop on success
+        } catch (err) {
+          mediaError = err;
+          console.warn(`WebRTCService: Media acquisition attempt ${attempt + 1} failed:`, err);
+          
+          // If this is the first attempt and it failed, wait a bit before retry
+          if (attempt === 0) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      }
+      
+      // If all attempts failed, throw the last error
+      if (mediaError) {
+        console.error('WebRTCService: All attempts to get user media failed:', mediaError);
+        let errorMessage = "Gagal mengakses kamera/mikrofon";
+        
+        if (mediaError instanceof Error) {
+          if (mediaError.name === "NotAllowedError" || mediaError.name === "PermissionDeniedError") {
+            errorMessage = "Izin kamera/mikrofon ditolak oleh pengguna";
+          } else if (mediaError.name === "NotFoundError" || mediaError.name === "DevicesNotFoundError") {
+            errorMessage = "Kamera atau mikrofon tidak ditemukan pada perangkat";
+          } else if (mediaError.name === "NotReadableError" || mediaError.name === "TrackStartError") {
+            errorMessage = "Kamera atau mikrofon sedang digunakan oleh aplikasi lain";
+          } else if (mediaError.name === "OverconstrainedError") {
+            errorMessage = "Tidak dapat menemukan kamera/mikrofon yang cocok dengan pengaturan";
+          } else if (mediaError.message.includes("Timeout")) {
+            errorMessage = "Waktu habis saat mencoba mengakses kamera/mikrofon";
+          }
+        }
+        
+        throw new Error(errorMessage);
       }
       
       if (!this.localStream) {
         throw new Error("WebRTCService: getUserMedia returned null stream");
       }
       
-      // Create room in signaling service
-      const roomId = await this.signalingService.createRoom(roomName, isVideoEnabled, isAudioEnabled);
+      // Create room using network resilient method
+      const roomId = await this.withNetworkRetry(
+        () => this.signalingService.createRoom(roomName, isVideoEnabled, isAudioEnabled),
+        3,  // 3 retry attempts
+        1500 // Start with 1.5s delay, will increase with exponential backoff
+      );
       console.log(`WebRTCService: Room created with ID ${roomId}`);
       
-      // Join the room we just created
-      await this.joinRoomWithStream(roomId, this.userDisplayName, isVideoEnabled, isAudioEnabled, this.localStream);
+      // Join the room we just created with network resilience
+      await this.withNetworkRetry(
+        () => this.joinRoomWithStream(roomId, this.userDisplayName, isVideoEnabled, isAudioEnabled, this.localStream!),
+        2,  // 2 retry attempts
+        2000 // Start with 2s delay
+      );
       console.log(`WebRTCService: Successfully joined created room ${roomId}`);
       
       // Reset counter on successful creation
       this.creationAttemptCount = 0;
-      return roomId;    } catch (error) {
+      return roomId;} catch (error) {
       console.error('WebRTCService: Failed to create room:', error);
       
       // Clear any watchdog timeout
@@ -334,18 +459,14 @@ export class WebRTCService {
         console.log("WebRTCService: Completed room creation process (success or failure)");
       }
       
-      // Gradually reduce creation attempt counter over time
-      if (this.creationAttemptCount > 0) {
+      // Gradually reduce creation attempt counter over time      if (this.creationAttemptCount > 0) {
         setTimeout(() => {
           this.creationAttemptCount = Math.max(0, this.creationAttemptCount - 1);
           console.log(`WebRTCService: Reduced creation attempt counter to ${this.creationAttemptCount}`);
         }, 60000); // Reduce counter after 1 minute
       }
     }
-  }
-    // Track active room joining to prevent duplicate operations
-  private isJoiningRoom = false;
-  
+
   async joinRoom(roomId: string, isVideoEnabled = true, isAudioEnabled = true): Promise<void> {
     // Prevent multiple simultaneous calls to joinRoom
     if (this.isJoiningRoom || this.isCreatingRoom || this.internalCallState.inRoom) {
@@ -429,7 +550,7 @@ export class WebRTCService {
       );
       
       if (!joined) {
-        throw new Error("WebRTCService: Failed to join room");
+        throw new Error("WebRTC: Gagal bergabung dengan ruangan");
       }
       
       // Set up room update listener
@@ -834,8 +955,7 @@ export class WebRTCService {
     this.closePeerConnection(targetUserId);
     
     console.log(`WebRTCService: Creating peer connection for user ${targetUserId}`);
-    
-    // Create new RTCPeerConnection
+      // Create new RTCPeerConnection
     const peerConnection = new RTCPeerConnection(this.rtcConfiguration);
     this.peerConnections.set(targetUserId, peerConnection);
     
@@ -845,6 +965,12 @@ export class WebRTCService {
         peerConnection.addTrack(track, this.localStream!);
       });
     }
+    
+    // Start connection monitoring for auto-recovery
+    this.monitorConnection(targetUserId);
+    
+    // Start bandwidth monitoring for quality adaptation
+    this.adaptMediaQuality(peerConnection, targetUserId);
     
     // Handle ICE candidates
     peerConnection.onicecandidate = async (event) => {
@@ -918,8 +1044,7 @@ export class WebRTCService {
     
     return peerConnection;
   }
-  
-  private closePeerConnection(targetUserId: string) {
+    private closePeerConnection(targetUserId: string) {
     const peerConnection = this.peerConnections.get(targetUserId);
     if (peerConnection) {
       console.log(`WebRTCService: Closing peer connection for ${targetUserId}`);
@@ -928,6 +1053,7 @@ export class WebRTCService {
       peerConnection.onicecandidate = null;
       peerConnection.ontrack = null;
       peerConnection.onconnectionstatechange = null;
+      peerConnection.onicegatheringstatechange = null;
       
       // Close the connection
       peerConnection.close();
@@ -935,6 +1061,22 @@ export class WebRTCService {
       
       // Remove the stream
       this.remoteStreams.delete(targetUserId);
+      
+      // Clear connection monitors
+      const monitor = this.connectionMonitors.get(targetUserId);
+      if (monitor) {
+        clearInterval(monitor);
+        this.connectionMonitors.delete(targetUserId);
+        console.log(`WebRTCService: Cleared connection monitor for ${targetUserId}`);
+      }
+      
+      // Clear bandwidth monitoring
+      const bandwidthMonitor = this.connectionMonitors.get(`${targetUserId}-bandwidth`);
+      if (bandwidthMonitor) {
+        clearInterval(bandwidthMonitor);
+        this.connectionMonitors.delete(`${targetUserId}-bandwidth`);
+        console.log(`WebRTCService: Cleared bandwidth monitor for ${targetUserId}`);
+      }
       
       // Update participant in state
       const newParticipants = { ...this.internalCallState.participants };
@@ -1384,6 +1526,13 @@ export class WebRTCService {
       this.joinRoomTimeout = null;
     }
     
+    // Clean up all monitoring intervals
+    this.connectionMonitors.forEach((monitor, id) => {
+      clearInterval(monitor);
+      console.log(`WebRTCService: Cleared monitor for ${id}`);
+    });
+    this.connectionMonitors.clear();
+    
     // Clean up room if needed
     if (this.internalCallState.inRoom) {
       this.cleanupRoom();
@@ -1407,7 +1556,8 @@ export class WebRTCService {
       inRoom: false,
       roomId: undefined,
       roomName: undefined,
-      participants: {}
+      participants: {},
+      connectionQuality: undefined
     });
     
     this.isInitiator = false;
@@ -1643,5 +1793,636 @@ export class WebRTCService {
   
   getCurrentRoomId(): string | null {
     return this.signalingService.getCurrentRoomId();
+  }
+
+  // Network detection helpers
+  private isOffline: boolean = false;
+  // Make public to allow external components to check network status
+  checkNetworkConnection(): boolean {
+    const online = window.navigator.onLine;
+    if (!online && !this.isOffline) {
+      console.warn("WebRTCService: Device is offline - network connection lost");
+      this.isOffline = true;
+    } else if (online && this.isOffline) {
+      console.log("WebRTCService: Network connection restored");
+      this.isOffline = false;
+    }
+    return online;
+  }
+
+  private setupNetworkListeners() {
+    // Add network event listeners
+    window.addEventListener('online', () => {
+      console.log("WebRTCService: Network came online");
+      this.isOffline = false;
+      
+      // If we were in the middle of creating a room, we might want to notify the UI
+      if (this.isCreatingRoom) {
+        console.log("WebRTCService: Network restored during room creation");
+      }
+    });
+    
+    window.addEventListener('offline', () => {
+      console.warn("WebRTCService: Network went offline");
+      this.isOffline = true;
+      
+      // If we were in the middle of creating a room, we might want to notify the UI
+      if (this.isCreatingRoom) {
+        console.error("WebRTCService: Network lost during room creation");
+      }
+    });
+  }
+
+  // Helper method to make Firebase operations more resilient
+  private async withNetworkRetry<T>(
+    operation: () => Promise<T>, 
+    maxRetries: number = 3,
+    retryDelay: number = 1000
+  ): Promise<T> {
+    let lastError: any;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        // Check network status before attempting
+        if (!this.checkNetworkConnection()) {
+          console.warn(`WebRTCService: Network appears to be offline, waiting before attempt ${attempt + 1}`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          
+          // Double the retry delay for next attempt (exponential backoff)
+          retryDelay *= 2;
+          continue;
+        }
+        
+        // Attempt the operation
+        return await operation();
+      } catch (error: any) {
+        lastError = error;
+        
+        // Check if this is a network related error
+        const isNetworkError = 
+          error.code === 'NETWORK_ERROR' || 
+          error.message?.includes('network') ||
+          error.message?.includes('timeout') ||
+          error.message?.includes('connection') ||
+          !this.checkNetworkConnection();
+        
+        if (isNetworkError && attempt < maxRetries) {
+          console.warn(`WebRTCService: Network error detected (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${retryDelay}ms`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          
+          // Double the retry delay for next attempt (exponential backoff)
+          retryDelay *= 2;
+        } else {
+          // Either not a network error or we've exhausted retries
+          throw error;
+        }
+      }
+    }
+    
+    // If we get here, we've exhausted all retries
+    throw lastError || new Error('Operation failed after multiple retries');
+  }
+  // Network status utility methods for UI components
+  isNetworkAvailable(): boolean {
+    return window.navigator.onLine;
+  }
+  
+  getNetworkStatus(): { online: boolean, offline: boolean } {
+    return {
+      online: window.navigator.onLine,
+      offline: this.isOffline
+    };
+  }
+  
+  // Helper method for ICE connection handling with restart capability
+  private async createAndSendOffer(
+    peerConnection: RTCPeerConnection, 
+    targetUserId: string, 
+    iceRestart: boolean = false
+  ): Promise<void> {
+    try {
+      // Create offer with optional ICE restart
+      const offerOptions: RTCOfferOptions = iceRestart ? { iceRestart: true } : {};
+      console.log(`WebRTCService: Creating offer for ${targetUserId}${iceRestart ? ' with ICE restart' : ''}`);
+      
+      const offer = await peerConnection.createOffer(offerOptions);
+      await peerConnection.setLocalDescription(offer);
+      
+      // Send the offer through signaling
+      if (this.internalCallState.roomId) {
+        await this.signalingService.sendMessage({
+          type: 'offer',
+          from: this.userId,
+          to: targetUserId,
+          roomId: this.internalCallState.roomId,
+          payload: offer
+        });
+        console.log(`WebRTCService: Offer sent to ${targetUserId}`);
+      } else {
+        throw new Error(`Cannot send offer - not in a room`);
+      }
+    } catch (error) {
+      console.error(`WebRTCService: Error creating/sending offer to ${targetUserId}:`, error);
+      throw error;
+    }
+  }
+
+  // Handle reconnection with specific participant
+  private async handleReconnection(targetUserId: string): Promise<void> {
+    try {
+      console.log(`WebRTCService: Attempting reconnection with ${targetUserId}`);
+      
+      // First, clean up existing connection
+      this.closePeerConnection(targetUserId);
+      
+      // Wait a short moment to ensure cleanup is complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Create new connection if we're still in the room
+      if (this.internalCallState.inRoom && this.internalCallState.roomId) {
+        await this.createPeerConnection(targetUserId);
+        console.log(`WebRTCService: Reconnection attempt with ${targetUserId} completed`);
+      } else {
+        console.log(`WebRTCService: Skipped reconnection with ${targetUserId} - no longer in room`);
+      }
+    } catch (error) {
+      console.error(`WebRTCService: Reconnection with ${targetUserId} failed:`, error);
+    }
+  }
+
+  /**
+   * Monitor WebRTC connections and attempt automatic recovery when needed
+   * @param targetUserId The participant ID to monitor
+   */
+  private monitorConnection(targetUserId: string): void {
+    const peerConnection = this.peerConnections.get(targetUserId);
+    if (!peerConnection) return;
+    
+    let recoveryAttempts = 0;
+    let lastConnectionState = peerConnection.connectionState;
+    let lastIceConnectionState = peerConnection.iceConnectionState;
+    let iceGatheringStartTime = Date.now();
+    let connectionTimeout: NodeJS.Timeout | null = null;
+    
+    const clearConnectionTimeout = () => {
+      if (connectionTimeout) {
+        clearTimeout(connectionTimeout);
+        connectionTimeout = null;
+      }
+    };
+    
+    // Monitor ICE gathering state
+    peerConnection.onicegatheringstatechange = () => {
+      const state = peerConnection.iceGatheringState;
+      console.log(`WebRTCService: ICE gathering state for ${targetUserId} changed to ${state}`);
+      
+      if (state === 'gathering') {
+        iceGatheringStartTime = Date.now();
+        
+        // Set timeout for ICE gathering
+        connectionTimeout = setTimeout(async () => {
+          if (peerConnection.iceGatheringState === 'gathering') {
+            console.warn(`WebRTCService: ICE gathering timeout for ${targetUserId}`);
+            
+            // Try to recover the connection
+            if (recoveryAttempts < 2) {
+              recoveryAttempts++;
+              console.log(`WebRTCService: Attempting recovery #${recoveryAttempts} for ${targetUserId}`);
+              
+              // Get optimized ICE servers
+              try {
+                const optimizedIceServers = await this.getOptimalIceServers();
+                
+                // Apply new ICE configuration
+                peerConnection.setConfiguration({
+                  ...this.rtcConfiguration,
+                  iceServers: optimizedIceServers,
+                  iceTransportPolicy: recoveryAttempts > 1 ? 'relay' : 'all' // Force TURN on second try
+                });
+                
+                // Restart ICE gathering
+                if (peerConnection.restartIce && this.localStream) {
+                  peerConnection.restartIce();
+                  await this.createAndSendOffer(peerConnection, targetUserId, true);
+                }
+              } catch (err) {
+                console.error(`WebRTCService: Recovery attempt failed for ${targetUserId}:`, err);
+              }
+            }
+          }
+          connectionTimeout = null;
+        }, this.iceGatheringTimeout);
+      } else if (state === 'complete') {
+        clearConnectionTimeout();
+        console.log(`WebRTCService: ICE gathering completed for ${targetUserId} in ${Date.now() - iceGatheringStartTime}ms`);
+      }
+    };
+    
+    // Enhanced connection state monitoring
+    const enhancedConnectionMonitor = setInterval(() => {
+      if (!this.peerConnections.has(targetUserId)) {
+        clearInterval(enhancedConnectionMonitor);
+        clearConnectionTimeout();
+        return;
+      }
+      
+      const currentState = peerConnection.connectionState;
+      const currentIceState = peerConnection.iceConnectionState;
+      
+      // Only log if state changed
+      if (currentState !== lastConnectionState || currentIceState !== lastIceConnectionState) {
+        console.log(`WebRTCService: Connection monitor - ${targetUserId} connection:${currentState}, ice:${currentIceState}`);
+               lastConnectionState = currentState;
+        lastIceConnectionState = currentIceState;
+      }
+      
+      // Attempt recovery for problematic states
+      if ((currentState === 'failed' || currentIceState === 'failed') && recoveryAttempts < 2) {
+        recoveryAttempts++;
+        console.log(`WebRTCService: Auto-recovery #${recoveryAttempts} triggered for ${targetUserId}`);
+        
+        // Schedule recovery with exponential backoff
+        setTimeout(async () => {
+          try {
+                       // Check if connection is still relevant
+            if (!this.peerConnections.has(targetUserId)) return;
+            
+            const optimizedIceServers = await this.getOptimalIceServers();
+            
+            // Apply recovery configuration
+            peerConnection.setConfiguration({
+              ...this.rtcConfiguration,
+              iceServers: optimizedIceServers,
+              iceTransportPolicy: recoveryAttempts > 1 ? 'relay' : 'all'
+            });
+            
+            // Restart ICE and create new offer
+            if (peerConnection.restartIce && this.localStream) {
+              peerConnection.restartIce();
+              await this.createAndSendOffer(peerConnection, targetUserId, true);
+              console.log(`WebRTCService: Recovery attempt #${recoveryAttempts} completed for ${targetUserId}`);
+            }
+          } catch (err) {
+            console.error(`WebRTCService: Auto-recovery attempt failed:`, err);
+          }
+        }, recoveryAttempts * 2000); // Exponential backoff (2s, 4s)
+      }
+      
+      // Collect connection statistics for diagnostics
+      if (this.internalCallState.diagnosticMode) {
+        this.logConnectionStats(peerConnection, targetUserId);
+      }
+    }, 5000); // Check every 5 seconds
+    
+    // Store the interval for cleanup
+    this.connectionMonitors.set(targetUserId, enhancedConnectionMonitor);
+  }
+  
+  /**
+   * Log connection statistics for diagnostics
+   */
+  private async logConnectionStats(peerConnection: RTCPeerConnection, targetUserId: string): Promise<void> {
+    try {
+      const stats = await peerConnection.getStats();
+      let rttSum = 0;
+      let rttCount = 0;
+      let packetsLost = 0;
+      let packetsReceived = 0;
+      
+      stats.forEach(report => {
+        if (report.type === 'remote-inbound-rtp' && report.roundTripTime) {
+          rttSum += report.roundTripTime;
+          rttCount++;
+        }
+        
+        if (report.type === 'inbound-rtp') {
+          packetsLost = report.packetsLost || 0;
+          packetsReceived = report.packetsReceived || 0;
+        }
+      });
+      
+      // Calculate average RTT
+      const averageRtt = rttCount > 0 ? rttSum / rttCount : 0;
+      
+      // Calculate packet loss percentage
+      const packetLossPercentage = 
+        (packetsReceived + packetsLost > 0) ? 
+          (packetsLost / (packetsReceived + packetsLost) * 100) : 0;
+      
+      // Determine connection quality
+      let connectionQuality: 'good' | 'fair' | 'poor' = 'good';
+      if (averageRtt > 0.300 || packetLossPercentage > 10) {
+        connectionQuality = 'poor';
+      } else if (averageRtt > 0.150 || packetLossPercentage > 3) {
+        connectionQuality = 'fair';
+      }
+      
+      // Only log significant changes or in diagnostic mode
+      if (
+        this.internalCallState.connectionQuality !== connectionQuality || 
+        this.internalCallState.diagnosticMode
+      ) {
+        console.log(`WebRTCService: Connection quality for ${targetUserId}: ${connectionQuality}, RTT: ${Math.round(averageRtt * 1000)}ms, Packet loss: ${packetLossPercentage.toFixed(1)}%`);
+        
+        // Update state with connection quality
+        this.updateState({
+          connectionQuality
+        });
+      }
+    } catch (err) {
+      // Don't log errors in production as this is just diagnostic info
+      if (this.internalCallState.diagnosticMode) {
+        console.warn(`WebRTCService: Error collecting connection stats:`, err);
+      }
+    }
+  }
+
+  // Add diagnostic methods
+  /**
+   * Run WebRTC connectivity diagnostics
+   * @returns Diagnostic results
+   */
+  public async runDiagnostics(): Promise<DiagnosticResults> {
+    console.log('WebRTCService: Running WebRTC diagnostics');
+    
+    try {
+      const results = await runDiagnostics();
+      
+      // Store the diagnostic results in the call state
+      this.updateState({
+        lastDiagnosticResult: results
+      });
+      
+      return results;
+    } catch (error) {
+      console.error('WebRTCService: Error running diagnostics:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Check if WebRTC connections are possible
+   * @returns True if connections are possible
+   */
+  public async checkConnectivity(): Promise<boolean> {
+    try {
+      console.log('WebRTCService: Checking WebRTC connectivity');
+      const { canConnect } = await checkWebRTCConnectivity();
+      return canConnect;
+    } catch (error) {
+      console.error('WebRTCService: Error checking connectivity:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Enable diagnostic mode to collect additional connection metrics and logs
+   */
+  public enableDiagnosticMode(enabled: boolean = true): void {
+    console.log(`WebRTCService: ${enabled ? 'Enabling' : 'Disabling'} diagnostic mode`);
+    
+    this.updateState({
+      diagnosticMode: enabled
+    });
+    
+    // Reset diagnostic results when disabling
+    if (!enabled && this.internalCallState.lastDiagnosticResult) {
+      this.updateState({
+        lastDiagnosticResult: undefined
+      });
+    }
+  }
+    /**
+   * Get optimal ICE servers based on connectivity test results
+   * This method prioritizes TURN servers if STUN isn't working
+   */
+  public async getOptimalIceServers(): Promise<RTCIceServer[]> {
+    try {
+      // Run a quick connectivity check
+      const diagnostics = await this.runDiagnostics();
+      
+      // Default configuration
+      const iceServers = this.rtcConfiguration.iceServers || [];
+      
+      // If STUN doesn't work but TURN does, prioritize TURN servers
+      if (!diagnostics.stunConnectivity.success && diagnostics.turnConnectivity.success) {
+        console.log('WebRTCService: STUN not working, prioritizing TURN servers');
+        
+        // Move TURN servers to the beginning of the array
+        const turnServers = iceServers
+          .filter(server => {
+            const urls = typeof server.urls === 'string' ? server.urls : server.urls?.[0] || '';
+                       return urls.includes('turn:');
+          });
+          
+        const stunServers = iceServers
+          .filter(server => {
+            const urls = typeof server.urls === 'string' ? server.urls : server.urls?.[0] || '';
+            return !urls.includes('turn:');
+          });
+          
+        return [...turnServers, ...stunServers];
+      } else if (!diagnostics.turnConnectivity.success && diagnostics.stunConnectivity.success) {
+        console.log('WebRTCService: TURN not working but STUN is, using only STUN servers');
+        
+        // Filter to only use working STUN servers
+        return iceServers
+          .filter(server => {
+            const urls = typeof server.urls === 'string' ? server.urls : server.urls?.[0] || '';
+            return urls.includes('stun:');
+          });
+      } else if (!diagnostics.stunConnectivity.success && !diagnostics.turnConnectivity.success) {
+        console.log('WebRTCService: Both STUN and TURN not working, using all available servers as fallback');
+        // Try all available servers as a last resort
+        return iceServers;
+      }else if (!diagnostics.turnConnectivity.success && diagnostics.stunConnectivity.success) {
+        console.log('WebRTCService: TURN not working but STUN is, using only STUN servers');
+        
+        // Filter to only use working STUN servers
+        return iceServers
+          .filter(server => {
+            const urls = typeof server.urls === 'string' ? server.urls : server.urls?.[0] || '';
+            return urls.includes('stun:');
+          });
+      } else if (!diagnostics.stunConnectivity.success && !diagnostics.turnConnectivity.success) {
+        console.log('WebRTCService: Both STUN and TURN not working, using all available servers as fallback');
+        // Try all available servers as a last resort
+        return iceServers;
+      }
+      
+      return iceServers;
+    } catch (error) {
+      console.error('WebRTCService: Error getting optimal ICE servers:', error);
+      // Fall back to default configuration
+      return this.rtcConfiguration.iceServers || [];
+    }
+  }
+  
+  /**
+   * Auto-recover WebRTC connection during connection establishment
+   * This tries different network strategies if the initial connection fails
+   */
+  private async attemptConnectionRecovery(
+    targetUserId: string, 
+    retryCount = 0
+  ): Promise<boolean> {
+    if (retryCount >= 2) {
+      console.warn(`WebRTCService: Maximum recovery attempts reached for user ${targetUserId}`);
+      return false;
+    }
+    
+    console.log(`WebRTCService: Attempting connection recovery for user ${targetUserId} (attempt ${retryCount + 1})`);
+    
+    try {
+      const peerConnection = this.peerConnections.get(targetUserId);
+      if (!peerConnection) {
+        console.warn(`WebRTCService: No peer connection found for ${targetUserId}`);
+        return false;
+      }
+      
+      // Try with different ICE servers based on diagnostics
+      const optimizedIceServers = await this.getOptimalIceServers();
+      
+      if (peerConnection.iceConnectionState !== 'connected' && 
+          peerConnection.iceConnectionState !== 'completed' &&
+          peerConnection.connectionState !== 'connected') {
+        
+        // Apply new ICE configuration
+        try {
+          peerConnection.setConfiguration({
+            ...this.rtcConfiguration,
+            iceServers: optimizedIceServers,
+            iceTransportPolicy: retryCount === 1 ? 'relay' : 'all' // Force TURN on second retry
+          });
+          
+          console.log(`WebRTCService: Applied new ICE configuration for ${targetUserId} with ${
+            optimizedIceServers.length
+          } servers, transport policy: ${retryCount === 1 ? 'relay' : 'all'}`);
+          
+          // Trigger ICE restart if allowed
+          if (peerConnection.restartIce) {
+            peerConnection.restartIce();
+            console.log(`WebRTCService: Restarted ICE gathering for ${targetUserId}`);
+            
+            // Create and send a new offer with ICE restart
+            if (this.localStream) {
+              await this.createAndSendOffer(peerConnection, targetUserId, true);
+              return true;
+            }
+          }
+        } catch (err) {
+          console.error('WebRTCService: Error applying recovery configuration:', err);
+        }
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('WebRTCService: Error during connection recovery:', error);
+      return false;
+    }
+  }
+  /**
+   * Adapts the media quality based on bandwidth estimation
+   * This helps with poor network conditions by reducing video resolution when needed
+   */
+  private adaptMediaQuality(peerConnection: RTCPeerConnection, targetUserId: string): void {
+    if (!this.localStream || !peerConnection) return;
+    
+    let lastBandwidthEstimate = 0;
+    let consecutiveLowBandwidth = 0;
+    let adaptationCount = 0;
+    const MAX_ADAPTATIONS = 2;
+    
+    // Video quality levels for adaptation (from best to worst)
+    const videoConstraints = [
+      { width: { ideal: 1280 }, height: { ideal: 720 } }, // HD
+      { width: { ideal: 640 }, height: { ideal: 360 } },  // SD
+      { width: { ideal: 320 }, height: { ideal: 240 } }   // Low
+    ];
+    
+    // Set sampling interval for bandwidth estimation
+    const bandwidthSamplingInterval = setInterval(async () => {
+      // Stop if connection is gone or peerConnection is null
+      if (!this.peerConnections.has(targetUserId) || !peerConnection) {
+        clearInterval(bandwidthSamplingInterval);
+        return;
+      }
+      
+      try {
+        // Get connection stats
+        const stats = await peerConnection.getStats();
+        let currentBandwidth = 0;
+        
+        // Calculate available bandwidth based on stats
+        stats.forEach(report => {
+          // Look for outbound-rtp stats with bytesTransmitted info
+          if (report.type === 'outbound-rtp' && report.kind === 'video') {
+            if (report.bytesSent && report.timestamp && lastBandwidthEstimate) {
+              const bytesSent = report.bytesSent;
+              const timeDelta = report.timestamp - lastBandwidthEstimate;
+              if (timeDelta > 0) {
+                // Calculate bandwidth in kbps
+                currentBandwidth = 8 * (bytesSent - lastBandwidthEstimate) / timeDelta;
+                lastBandwidthEstimate = bytesSent;
+              }
+            } else if (report.bytesSent) {
+              lastBandwidthEstimate = report.bytesSent;
+            }
+          }
+        });
+        
+        // Check if we need to adapt quality based on bandwidth
+        if (currentBandwidth > 0) {
+          // Low bandwidth detection (500kbps threshold for decent video)
+          if (currentBandwidth < 500 && adaptationCount < MAX_ADAPTATIONS) {
+            consecutiveLowBandwidth++;
+            
+            // Only adapt after consistent low bandwidth
+            if (consecutiveLowBandwidth >= 2) {
+              console.log(`WebRTCService: Low bandwidth detected (${Math.round(currentBandwidth)}kbps), adapting video quality`);
+              
+              // Get video track to adapt
+              const videoTrack = this.localStream?.getVideoTracks()?.[0];
+              if (videoTrack) {
+                adaptationCount++;
+                
+                // Apply lower quality constraints based on adaptation count
+                const constraints = videoConstraints[adaptationCount];
+                try {
+                  await videoTrack.applyConstraints(constraints);
+                  console.log(`WebRTCService: Reduced video quality to ${constraints.width.ideal}x${constraints.height.ideal}`);
+                } catch (err) {
+                  console.warn('WebRTCService: Could not apply video constraints:', err);
+                }
+                consecutiveLowBandwidth = 0;
+              }
+            }
+          } else if (currentBandwidth > 1500 && consecutiveLowBandwidth > 0) {
+            // Reset counter when bandwidth is good
+            consecutiveLowBandwidth = 0;
+          }
+          
+          // Update connection quality in state
+          let connectionQuality: 'good' | 'fair' | 'poor' = 'good';
+          if (currentBandwidth < 250) {
+            connectionQuality = 'poor';
+          } else if (currentBandwidth < 750) {
+            connectionQuality = 'fair';
+          }
+          
+          if (this.internalCallState.connectionQuality !== connectionQuality) {
+            this.updateState({ connectionQuality });
+          }
+        }
+      } catch (err) {
+        // Don't log errors in production as this is just optimization
+        if (this.internalCallState.diagnosticMode) {
+          console.warn('WebRTCService: Error monitoring bandwidth:', err);
+        }
+      }
+    }, 5000); // Check every 5 seconds
+    
+    // Store interval for cleanup
+    this.connectionMonitors.set(`${targetUserId}-bandwidth`, bandwidthSamplingInterval);
   }
 }

@@ -13,10 +13,14 @@
 
 // List of problematic WebSocket URLs to intercept
 // Modified to be more selective and only block specific problematic endpoints
+// Allow essential WebRTC connections while blocking problematic ones
 const BLOCKED_WS_PATTERNS = [
-  'rumahkita.rnggagib.me:3000/ws',
-  // Only blocking the specific problematic endpoint, allowing others that might be needed
+  'rumahkita.rnggagib.me:3000/ws', // Block specific problematic endpoint
+  // Avoid blocking STUN/TURN servers and other WebRTC essential connections
 ];
+
+// Add diagnostic mode to help troubleshoot connection issues
+const WEBSOCKET_DIAGNOSTIC_MODE = false; // Set to true temporarily when debugging connection issues
 
 // Counter to track blocked connections for logging
 let blockedConnectionCount = 0;
@@ -25,10 +29,35 @@ let blockedConnectionCount = 0;
  * Checks if a WebSocket URL should be blocked
  */
 const shouldBlockWebSocketUrl = (url: string): boolean => {
+  // In diagnostic mode, log all WebSocket connections for troubleshooting
+  if (WEBSOCKET_DIAGNOSTIC_MODE) {
+    console.log(`WebSocketCheck [DIAGNOSTIC]: WebSocket connection attempt to ${url}`);
+  }
+
+  // Skip blocking for STUN/TURN servers which are essential for WebRTC
+  if (url.includes('stun:') || url.includes('turn:') || 
+      url.includes('google.com') || url.includes('twilio.com') || 
+      url.includes('stunprotocol.org') || url.includes('ekiga.net') ||
+      url.includes('openrelay.metered.ca')) {
+    if (WEBSOCKET_DIAGNOSTIC_MODE) {
+      console.log(`WebSocketCheck [DIAGNOSTIC]: Allowing STUN/TURN connection to ${url}`);
+    }
+    return false;
+  }
+  
+  // Allow WebRTC ICE connections and data channels with enhanced pattern matching
+  const webRtcPatterns = ['webrtc', 'ice', 'rtc', 'candidate', 'datachannel', 'peer', 'sdp', 'offer', 'answer'];
+  if (webRtcPatterns.some(pattern => url.toLowerCase().includes(pattern))) {
+    if (WEBSOCKET_DIAGNOSTIC_MODE) {
+      console.log(`WebSocketCheck [DIAGNOSTIC]: Allowing WebRTC connection to ${url}`);
+    }
+    return false;
+  }
+  
   // Case insensitive check for more robust matching
   const lowerUrl = url.toLowerCase();
   
-  // More efficient detection algorithm
+  // More efficient detection algorithm - only block the specific problematic patterns
   const shouldBlock = BLOCKED_WS_PATTERNS.some(pattern => lowerUrl.includes(pattern.toLowerCase()));
   
   // Improved logging with distinctions between different blocked URLs
@@ -37,7 +66,7 @@ const shouldBlockWebSocketUrl = (url: string): boolean => {
     
     // Only log every few connections to prevent console spam
     // This helps identify patterns of excessive connection attempts
-    if (blockedConnectionCount <= 5 || blockedConnectionCount % 10 === 0) {
+    if (blockedConnectionCount <= 5 || blockedConnectionCount % 10 === 0 || WEBSOCKET_DIAGNOSTIC_MODE) {
       console.log(`WebSocketCheck: Blocked connection #${blockedConnectionCount} to ${url}`);
       
       // Add explanation for why this is happening

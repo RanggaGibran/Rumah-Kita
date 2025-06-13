@@ -8,6 +8,8 @@ import {
   subscribeToChatMessages, 
   markMessageAsRead 
 } from '../../services/firebase/chat';
+import WebRTCDiagnostics from './WebRTCDiagnostics';
+import { DiagnosticResults } from '../../utils/webrtcDiagnostics';
 
 interface VideoCallChatProps {
   homeId: string;
@@ -47,6 +49,10 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // Diagnostics state
+  const [isDiagnosticsModalOpen, setIsDiagnosticsModalOpen] = useState(false);
+  const [diagnosticResults, setDiagnosticResults] = useState<DiagnosticResults | null>(null);
 
   // Auto scroll to bottom when new messages arrive
   const scrollToBottom = () => {
@@ -442,8 +448,38 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
     setIsCreatingRoom(true);
     
     const attemptId = Date.now(); // Generate unique ID for this attempt for logging
-    console.log(`VideoCallChat[${attemptId}]: Starting room creation (Attempt ${creationAttemptCount + 1}/${MAX_CREATION_ATTEMPTS})`);
-      // Setup a watchdog timeout to prevent UI getting stuck if something goes wrong
+    console.log(`VideoCallChat[${attemptId}]: Starting room creation (Attempt ${creationAttemptCount + 1}/${MAX_CREATION_ATTEMPTS})`);      // Setup tiered feedback for better UX and network resilience
+    let earlyFeedbackTimeout: NodeJS.Timeout | null = null;
+    let midFeedbackTimeout: NodeJS.Timeout | null = null;
+    
+    // First-tier feedback - early indication (8 seconds)
+    earlyFeedbackTimeout = setTimeout(() => {
+      if (isCreatingRoomRef.current) {
+        console.log(`VideoCallChat[${attemptId}]: Room creation taking longer than expected (early notification)`);
+        setError('Membuat ruangan... mohon bersabar (ini mungkin memerlukan beberapa saat)');
+      }
+    }, 8000);
+
+    // Second-tier feedback - mid-process indication (20 seconds)
+    midFeedbackTimeout = setTimeout(() => {
+      if (isCreatingRoomRef.current) {
+        console.log(`VideoCallChat[${attemptId}]: Room creation still in progress (mid notification)`);
+        
+        // Check network status
+        if (!window.navigator.onLine) {
+          setError('Koneksi internet terputus. Mencoba melanjutkan saat terhubung kembali...');
+        } else {
+          setError('Masih membuat ruangan... koneksi mungkin lambat, harap tunggu');
+        }
+        
+        // Attempt to check if WebRTC service is still responsive
+        if (webrtcServiceRef.current) {
+          webrtcServiceRef.current.checkNetworkConnection?.();
+        }
+      }
+    }, 20000);
+    
+    // Final watchdog timeout to prevent UI getting stuck if something goes wrong
     const watchdogTimeout = setTimeout(() => {
       if (isCreatingRoomRef.current) {
         console.error(`VideoCallChat[${attemptId}]: Room creation watchdog timeout triggered`);
@@ -459,7 +495,11 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
           );
         }
       }
-    }, 30000); // 30 second watchdog, synchronized with WebRTC service timeout
+      
+      // Clear other timeouts
+      if (earlyFeedbackTimeout) clearTimeout(earlyFeedbackTimeout);
+      if (midFeedbackTimeout) clearTimeout(midFeedbackTimeout);
+    }, 35000); // 35 second watchdog, synchronized with WebRTC service timeout
     
     try {
       // Check for WebRTC service
@@ -473,10 +513,18 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
       
       // Generate room name with timestamp for uniqueness
       const name = roomName.trim() || `Room ${new Date().toLocaleTimeString()}`;
-      console.log(`VideoCallChat[${attemptId}]: Creating new room: ${name}`);
-        // Race between room creation and timeout with progressive feedback
+      console.log(`VideoCallChat[${attemptId}]: Creating new room: ${name}`);        // Race between room creation and timeout with adaptive feedback
       const timeoutPromise = new Promise<never>((_, reject) => { 
         let timeoutTriggered = false;
+        let networkStatusCheckInterval: NodeJS.Timeout | null = null;
+        
+        // Network connectivity monitoring
+        networkStatusCheckInterval = setInterval(() => {
+          if (!timeoutTriggered && !window.navigator.onLine) {
+            console.warn(`VideoCallChat[${attemptId}]: Network is offline during room creation`);
+            setError('Koneksi internet terputus. Akan mencoba lagi saat terhubung kembali.');
+          }
+        }, 3000); // Check every 3 seconds
         
         // First timeout warning - display early feedback
         setTimeout(() => {
@@ -486,12 +534,37 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
           }
         }, 8000);
         
-        // Final timeout - actual failure
+        // Intermediate warning with additional details
         setTimeout(() => {
+          if (!timeoutTriggered) {
+            console.log(`VideoCallChat[${attemptId}]: Room creation still in progress`);
+            setError('Masih membuat ruangan... mungkin koneksi lambat');
+          }
+        }, 15000);
+        
+        // Final timeout - actual failure, but with network awareness
+        setTimeout(() => {
+          if (networkStatusCheckInterval) {
+            clearInterval(networkStatusCheckInterval);
+          }
+          
           timeoutTriggered = true;
-          reject(new Error('Waktu habis saat membuat ruangan'));
-        }, 25000);
+          
+          // If offline, provide more helpful message
+          if (!window.navigator.onLine) {
+            reject(new Error('Koneksi internet terputus saat membuat ruangan. Silakan periksa koneksi Anda.'));
+          } else {
+            reject(new Error('Waktu habis saat membuat ruangan - koneksi mungkin lambat atau tidak stabil'));
+          }
+        }, 30000);
       });
+        // Check network status before attempting to create room
+      const networkAvailable = webrtcServiceRef.current.isNetworkAvailable?.() ?? window.navigator.onLine;
+      if (!networkAvailable) {
+        console.warn(`VideoCallChat[${attemptId}]: Network appears to be offline, warning user`);
+        setError('Koneksi internet tidak tersedia. Harap periksa koneksi Anda dan coba lagi.');
+        throw new Error('Network offline');
+      }
       
       const roomId = await Promise.race([
         webrtcServiceRef.current.createRoom(name, isVideoEnabled, isAudioEnabled),
@@ -595,9 +668,18 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
       await webrtcServiceRef.current.emergencyReset();
       
       // Join with timeout protection
-      console.log(`VideoCallChat[${joinAttemptId}]: Joining room ${roomId}`);      // Join room with progressive feedback
+      console.log(`VideoCallChat[${joinAttemptId}]: Joining room ${roomId}`);      // Join room with adaptive feedback and network awareness
       const joinTimeoutPromise = new Promise<never>((_, reject) => {
         let joinTimeoutTriggered = false;
+        let networkStatusCheckInterval: NodeJS.Timeout | null = null;
+        
+        // Network monitoring
+        networkStatusCheckInterval = setInterval(() => {
+          if (!joinTimeoutTriggered && !window.navigator.onLine) {
+            console.warn(`VideoCallChat[${joinAttemptId}]: Network is offline during room joining`);
+            setError('Koneksi internet terputus. Menunggu koneksi kembali...');
+          }
+        }, 2000); // Check every 2 seconds
         
         // First warning - early feedback
         setTimeout(() => {
@@ -607,12 +689,37 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
           }
         }, 5000);
         
-        // Final timeout - actual failure
+        // Second warning - mid-process
         setTimeout(() => {
+          if (!joinTimeoutTriggered) {
+            console.log(`VideoCallChat[${joinAttemptId}]: Room join still in progress`);
+            setError('Masih mencoba bergabung... memerlukan waktu lebih lama dari biasanya');
+          }
+        }, 12000);
+        
+        // Final timeout - actual failure but with network awareness
+        setTimeout(() => {
+          if (networkStatusCheckInterval) {
+            clearInterval(networkStatusCheckInterval);
+          }
+          
           joinTimeoutTriggered = true;
-          reject(new Error('Waktu habis saat bergabung ke ruangan'));
-        }, 20000);
+          
+          // If offline, provide more helpful message
+          if (!window.navigator.onLine) {
+            reject(new Error('Koneksi internet terputus saat bergabung ruangan. Silakan periksa koneksi Anda.'));
+          } else {
+            reject(new Error('Waktu habis saat bergabung ke ruangan - koneksi mungkin lambat atau tidak stabil'));
+          }
+        }, 25000); // Extended to 25s matching WebRTC service timeout
       });
+        // Check network status before attempting to join room
+      const networkAvailable = webrtcServiceRef.current.isNetworkAvailable?.() ?? window.navigator.onLine;
+      if (!networkAvailable) {
+        console.warn(`VideoCallChat[${joinAttemptId}]: Network appears to be offline, warning user`);
+        setError('Koneksi internet tidak tersedia. Harap periksa koneksi Anda dan coba lagi.');
+        throw new Error('Network offline');
+      }
       
       await Promise.race([
         webrtcServiceRef.current.joinRoom(roomId, isVideoEnabled, isAudioEnabled),
@@ -814,6 +921,36 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
     }
   };
 
+  // Diagnostic functions
+  const handleDiagnosticsComplete = (results: DiagnosticResults) => {
+    setDiagnosticResults(results);
+    
+    // Enable diagnostic mode in WebRTC service if we have connectivity issues
+    if (webrtcServiceRef.current && (!results.stunConnectivity.success || !results.turnConnectivity.success)) {
+      webrtcServiceRef.current.enableDiagnosticMode(true);
+    }
+  };
+
+  // Run diagnostic optimization after issues detected
+  const applyDiagnosticOptimizations = async () => {
+    if (!webrtcServiceRef.current || !diagnosticResults) return;
+    
+    try {
+      setError('Menerapkan pengoptimalan berdasarkan hasil diagnostik...');
+      
+      // Get optimized ICE servers based on diagnostic results
+      const optimalServers = await webrtcServiceRef.current.getOptimalIceServers();
+      console.log('VideoCallChat: Applied optimal ICE servers based on diagnostics:', 
+        optimalServers.map(s => typeof s.urls === 'string' ? s.urls : s.urls?.[0]).join(', '));
+      
+      setError('Pengoptimalan jaringan diterapkan. Silakan coba lagi membuat ruangan.');
+      setTimeout(() => setError(''), 5000);
+    } catch (err) {
+      console.error('Error applying diagnostic optimizations:', err);
+      setError('Gagal menerapkan pengoptimalan. Silakan coba lagi nanti.');
+    }
+  };
+
   // Simplified time formatter for messages
   const formatTime = (timestamp: Date) => {
     const now = new Date();
@@ -909,12 +1046,29 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
       <div className="p-3 sm:p-4 border-b border-slate-700/30 glassmorphism bg-slate-800/40">
         {error && (
           <div className="mb-4 p-3 bg-red-900/30 border border-red-500/30 rounded-lg text-sm text-red-200 flex items-center">
-            <svg className="w-5 h-5 mr-2 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+            <svg className="w-5 h-5 mr-2 text-red-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
-            {error}
+            <div className="flex-1">
+              <p>{error}</p>
+              {(error.includes('koneksi') || 
+                error.includes('jaringan') || 
+                error.includes('Timeout') || 
+                error.includes('Waktu habis') || 
+                error.includes('koneksi internet')) && (
+                <button
+                  onClick={() => setIsDiagnosticsModalOpen(true)}
+                  className="mt-2 flex items-center text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                  Jalankan Diagnostik Koneksi
+                </button>
+              )}
+            </div>
             <button 
-              className="ml-auto text-red-400 hover:text-red-300" 
+              className="ml-2 text-red-400 hover:text-red-300 flex-shrink-0" 
               onClick={() => setError('')}
               aria-label="Close"
             >
@@ -1007,9 +1161,38 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
                           {Object.keys(callState.participants).length} peserta
                         </p>
                       </div>
-                      <div className="text-xs text-slate-400 bg-slate-800/70 px-2 py-1 rounded-md flex items-center">
-                        <span className="animate-pulse w-2 h-2 rounded-full bg-green-500 mr-1.5"></span>
-                        Live
+                      <div className="flex items-center space-x-2">
+                        {/* Connection quality indicator */}
+                        {callState.connectionQuality && (
+                          <div className="text-xs bg-slate-800/70 px-2 py-1 rounded-md flex items-center mr-1">
+                            <span 
+                              className={`w-2 h-2 rounded-full mr-1.5 ${
+                                callState.connectionQuality === 'good' 
+                                  ? 'bg-green-500' 
+                                  : callState.connectionQuality === 'fair' 
+                                  ? 'bg-yellow-500' 
+                                  : 'bg-red-500'
+                              }`}
+                            ></span>
+                            <span className={
+                              callState.connectionQuality === 'good' 
+                                ? 'text-green-400' 
+                                : callState.connectionQuality === 'fair' 
+                                ? 'text-yellow-400' 
+                                : 'text-red-400'
+                            }>
+                              {callState.connectionQuality === 'good' 
+                                ? 'Koneksi baik' 
+                                : callState.connectionQuality === 'fair' 
+                                ? 'Koneksi sedang' 
+                                : 'Koneksi buruk'}
+                            </span>
+                          </div>
+                        )}
+                        <div className="text-xs text-slate-400 bg-slate-800/70 px-2 py-1 rounded-md flex items-center">
+                          <span className="animate-pulse w-2 h-2 rounded-full bg-green-500 mr-1.5"></span>
+                          Live
+                        </div>
                       </div>
                     </div>
                     
@@ -1161,7 +1344,7 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
                       {isAudioEnabled ? (
                         <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3zM19 10v2a7 7 0 01-14 0v-2H3v2a9 9 0 008 8.941V21H9v2h6v-2h-2v-2.059A9 9 0 0021 12v-2h-2z" />
                       ) : (
-                        <path d="M12 1a3 3 0 00-3 3v8c0 .14.01.28.02.42L15 7.5V4a3 3 0 00-3-3zM19 10v2a7.03 7.03 0 01-.1 1.1l1.45 1.44A9.02 9.02 0 0021 12v-2h-2zM4.27 3L21 19.73l-1.41 1.41L15.54 17.1c-.82.4-1.74.63-2.71.78V21h2v2H9v-2h2v-3.12A9 9 0 013 12v-2h2v2c0 .84.15 1.64.41 2.39L4.27 3z" />
+                        <path d="M12 1a3 3 0 00-3 3v8c0 .14.01.28.02.42L15 7.5V4a3 3 0 00-3-3zM19 10v2a7.03 7.03 0 01-.1 1.1l1.45 1.44A9.02 9.02 0 0021 12v-2h-2zM4.27 3L21.19 21.19l-1.41 1.41L15.54 17.1c-.82.4-1.74.63-2.71.78V21h2v2H9v-2h2v-3.12A9 9 0 013 12v-2h2v2c0 .84.15 1.64.41 2.39L4.27 3z" />
                       )}
                     </svg>
                   </button>
@@ -1214,11 +1397,10 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
                     <svg className="h-10 w-10 sm:h-12 sm:w-12 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                     </svg>
-                  </div>
-                  <h3 className="text-xl sm:text-2xl font-medium text-gradient bg-gradient-to-r from-blue-400 to-indigo-500 mb-2 sm:mb-3 text-center">
+                  </div>                  <h3 className="text-xl sm:text-2xl font-medium text-gradient bg-gradient-to-r from-blue-400 to-indigo-500 mb-2 sm:mb-3 text-center">
                     Ruang Panggilan Video
                   </h3>
-                  <p className="text-sm sm:text-base text-slate-300 mb-4 sm:mb-6 max-w-md mx-auto text-center">
+                  <p className="text-sm sm:text-base text-slate-400">
                     Buat ruangan baru atau bergabung dengan ruangan yang sudah ada untuk melakukan panggilan video
                   </p>
                   
@@ -1294,7 +1476,7 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
                     ) : rooms.length === 0 ? (
                       <div className="text-center py-8 text-slate-400">
                         <svg className="mx-auto h-10 w-10 sm:h-12 sm:w-12 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2V5c0-1.1-.9-2-2-2h-8v2h8v14z" />
                         </svg>
                         <p className="mt-2 sm:mt-3 text-sm">Belum ada ruang aktif</p>
                       </div>
@@ -1317,7 +1499,7 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
                                     <h5 className="text-sm sm:text-base font-medium text-white">{room.name || `Room ${room.id.slice(0, 4)}`}</h5>
                                     <div className="flex items-center mt-1 text-xs text-slate-400">
                                       <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                        <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" />
+                                        <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" />
                                       </svg>
                                       <span>{participantCount} {participantCount === 1 ? 'peserta' : 'peserta'}</span>
                                       {isCreator && (
@@ -1493,7 +1675,42 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
                   )}
                 </button>
               </form>
-            </div>
+            </div>            {/* Diagnostics Modal */}
+            {isDiagnosticsModalOpen && (
+              <WebRTCDiagnostics 
+                onClose={() => setIsDiagnosticsModalOpen(false)} 
+                onDiagnosticsComplete={handleDiagnosticsComplete}
+                isOpen={isDiagnosticsModalOpen}
+              />
+            )}
+            
+            {/* Optimization button shown after diagnostics */}
+            {diagnosticResults && !isDiagnosticsModalOpen && (
+              <div className="mt-3 p-3 bg-blue-900/20 border border-blue-500/30 rounded-lg">
+                <div className="flex items-start">
+                  <svg className="w-5 h-5 mr-2 text-blue-400 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 16l-6.36-6.33 1.42-1.42L12 13.17l4.94-4.95 1.42 1.42z"/>
+                  </svg>
+                  <div className="flex-1">
+                    <p className="text-sm text-blue-200">Diagnostik telah selesai. {
+                      (!diagnosticResults.stunConnectivity.success || !diagnosticResults.turnConnectivity.success) 
+                        ? 'Ditemukan masalah koneksi WebRTC.' 
+                        : 'Koneksi WebRTC tampak baik.'
+                    }</p>
+                    
+                    <button
+                      onClick={applyDiagnosticOptimizations}
+                      className="mt-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded flex items-center"
+                    >
+                      <svg className="w-4 h-4 mr-1.5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-2h2v2h-2zm0-10v6h2V7h-2z"/>
+                      </svg>
+                      Terapkan Pengoptimalan
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
