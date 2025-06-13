@@ -234,15 +234,17 @@ export class WebRTCService {
     this.isCreatingRoom = true;
     this.lastCreationTime = now;
     this.creationAttemptCount++;
-    
-    // Setup watchdog timer to prevent hanging operations
+      // Setup watchdog timer to prevent hanging operations
     this.roomCreationTimeout = setTimeout(() => {
       if (this.isCreatingRoom) {
-        console.error("WebRTCService: Room creation operation timed out after 15 seconds");
+        console.error("WebRTCService: Room creation operation timed out after 30 seconds");
+        // Additional cleanup to prevent stuck state
         this.isCreatingRoom = false;
         this.updateState({ isConnecting: false });
+        // Try to recover from stalled state
+        this.emergencyReset().catch(err => console.warn("Error during emergency reset:", err));
       }
-    }, 15000);
+    }, 30000); // Increased from 15 to 30 seconds
     
     try {
       console.log(`WebRTCService: Creating a new room (Attempt ${this.creationAttemptCount}/${this.MAX_CREATION_ATTEMPTS})`);
@@ -407,12 +409,13 @@ export class WebRTCService {
     }
     
     this.joinRoomAttemptCount++;
-    
-    // Set up watchdog timer
+      // Set up watchdog timer with extended timeout
     this.joinRoomTimeout = setTimeout(() => {
       console.error("WebRTCService: Room joining operation timed out");
-      this.updateState({ isConnecting: false }); 
-    }, 15000);
+      this.updateState({ isConnecting: false });
+      // Try to recover from stalled state
+      this.emergencyReset().catch(err => console.warn("Error during emergency reset after join timeout:", err));
+    }, 25000); // Increased to 25 seconds to allow more time for connection establishment
     
     try {
       console.log(`WebRTCService: Joining room with stream (Attempt ${this.joinRoomAttemptCount}/${this.MAX_JOIN_ATTEMPTS})`);
@@ -1435,7 +1438,7 @@ export class WebRTCService {
         }
       }
       
-      // Clear all operational flags
+      // Clear all operational flags immediately to prevent race conditions
       this.isCreatingRoom = false;
       this.isJoiningRoom = false;
       this.creationAttemptCount = 0;
@@ -1457,9 +1460,25 @@ export class WebRTCService {
       this.roomCreationTimeout = null;
       this.joinRoomTimeout = null;
       
-      // Clean up all resources
-      this.cleanupMedia();
+      // Clean up all media resources with enhanced error handling
+      try {
+        await this.cleanupMediaEnhanced();
+      } catch (mediaError) {
+        console.error("WebRTCService: Error in media cleanup:", mediaError);
+      }
+      
+      // Clean up peer connections
       this.cleanupPeerConnections();
+      
+      // Try to reset Firebase signaling status
+      try {
+        await Promise.race([
+          this.signalingService.setUserStatus('available'),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Status update timeout")), 2000))
+        ]);
+      } catch (statusError) {
+        console.warn("WebRTCService: Error resetting user status:", statusError);
+      }
       
       // Clean up signaling listeners and recreate them
       if (this.unsubscribeSignaling) {
@@ -1503,9 +1522,77 @@ export class WebRTCService {
       // Still need to ensure critical flags are reset even if errors occur
       this.isCreatingRoom = false;
       this.isJoiningRoom = false;
+      
+      // Force state reset even on error
+      this.updateState({
+        isConnected: false,
+        isConnecting: false,
+        inRoom: false
+      });
     }
   }
 
+  // Enhanced media cleanup with more thorough error handling
+  private async cleanupMediaEnhanced(): Promise<void> {
+    console.log("WebRTCService: Enhanced cleanup of media resources");
+    
+    // Cleanup local stream
+    if (this.localStream) {
+      try {
+        const tracks = this.localStream.getTracks();
+        
+        // Create a promise for each track stop operation
+        const stopPromises = tracks.map(track => {
+          return new Promise<void>((resolve) => {
+            try {
+              console.log(`WebRTCService: Stopping local ${track.kind} track`);
+              track.stop();
+              track.enabled = false;
+              resolve();
+            } catch (err) {
+              console.warn(`WebRTCService: Error stopping local ${track.kind} track:`, err);
+              resolve(); // Still resolve to continue with cleanup
+            }
+          });
+        });
+        
+        // Wait for all tracks to be stopped with a timeout
+        await Promise.race([
+          Promise.all(stopPromises),
+          new Promise(resolve => setTimeout(resolve, 2000)) // Maximum 2s for media cleanup
+        ]);
+      } catch (err) {
+        console.warn("WebRTCService: Error cleaning up local stream:", err);
+      } finally {
+        this.localStream = null;
+      }
+    }
+    
+    // Clean up remote streams with similar approach
+    const remoteUserIds = Array.from(this.remoteStreams.keys());
+    for (const userId of remoteUserIds) {
+      const stream = this.remoteStreams.get(userId);
+      if (stream) {
+        try {
+          const tracks = stream.getTracks();
+          for (const track of tracks) {
+            try {
+              track.stop();
+              track.enabled = false;
+            } catch (err) {
+              console.warn(`WebRTCService: Error stopping remote track from ${userId}:`, err);
+            }
+          }
+        } catch (err) {
+          console.warn(`WebRTCService: Error cleaning up remote stream from ${userId}:`, err);
+        }
+      }
+    }
+    
+    this.remoteStreams.clear();
+    this.remoteStream = null;
+  }
+  
   /**
    * Complete destroy method to be called when the service is no longer needed
    * This should be called when the component using the service unmounts

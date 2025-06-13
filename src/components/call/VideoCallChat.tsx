@@ -443,16 +443,23 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
     
     const attemptId = Date.now(); // Generate unique ID for this attempt for logging
     console.log(`VideoCallChat[${attemptId}]: Starting room creation (Attempt ${creationAttemptCount + 1}/${MAX_CREATION_ATTEMPTS})`);
-    
-    // Setup a watchdog timeout to prevent UI getting stuck if something goes wrong
+      // Setup a watchdog timeout to prevent UI getting stuck if something goes wrong
     const watchdogTimeout = setTimeout(() => {
       if (isCreatingRoomRef.current) {
         console.error(`VideoCallChat[${attemptId}]: Room creation watchdog timeout triggered`);
         isCreatingRoomRef.current = false;
         setIsCreatingRoom(false);
         setError('Pembuatan ruang terlalu lama. Silakan coba lagi.');
+        
+        // Attempt to recover WebRTC service on timeout
+        if (webrtcServiceRef.current) {
+          console.log(`VideoCallChat[${attemptId}]: Attempting emergency reset after timeout`);
+          webrtcServiceRef.current.emergencyReset().catch(err => 
+            console.error(`VideoCallChat[${attemptId}]: Reset error:`, err)
+          );
+        }
       }
-    }, 25000); // 25 second watchdog
+    }, 30000); // 30 second watchdog, synchronized with WebRTC service timeout
     
     try {
       // Check for WebRTC service
@@ -467,13 +474,28 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
       // Generate room name with timestamp for uniqueness
       const name = roomName.trim() || `Room ${new Date().toLocaleTimeString()}`;
       console.log(`VideoCallChat[${attemptId}]: Creating new room: ${name}`);
+        // Race between room creation and timeout with progressive feedback
+      const timeoutPromise = new Promise<never>((_, reject) => { 
+        let timeoutTriggered = false;
+        
+        // First timeout warning - display early feedback
+        setTimeout(() => {
+          if (!timeoutTriggered) {
+            console.log(`VideoCallChat[${attemptId}]: Room creation taking longer than expected`);
+            setError('Membuat ruangan... harap tunggu (ini mungkin memerlukan beberapa detik)');
+          }
+        }, 8000);
+        
+        // Final timeout - actual failure
+        setTimeout(() => {
+          timeoutTriggered = true;
+          reject(new Error('Waktu habis saat membuat ruangan'));
+        }, 25000);
+      });
       
-      // Race between room creation and timeout
       const roomId = await Promise.race([
         webrtcServiceRef.current.createRoom(name, isVideoEnabled, isAudioEnabled),
-        new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('Waktu habis saat membuat ruangan')), 20000)
-        )
+        timeoutPromise
       ]);
       
       // Success - clear form and log
@@ -573,12 +595,28 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {  // VideoC
       await webrtcServiceRef.current.emergencyReset();
       
       // Join with timeout protection
-      console.log(`VideoCallChat[${joinAttemptId}]: Joining room ${roomId}`);
+      console.log(`VideoCallChat[${joinAttemptId}]: Joining room ${roomId}`);      // Join room with progressive feedback
+      const joinTimeoutPromise = new Promise<never>((_, reject) => {
+        let joinTimeoutTriggered = false;
+        
+        // First warning - early feedback
+        setTimeout(() => {
+          if (!joinTimeoutTriggered) {
+            console.log(`VideoCallChat[${joinAttemptId}]: Room join taking longer than expected`);
+            setError('Bergabung dengan ruangan... harap tunggu');
+          }
+        }, 5000);
+        
+        // Final timeout - actual failure
+        setTimeout(() => {
+          joinTimeoutTriggered = true;
+          reject(new Error('Waktu habis saat bergabung ke ruangan'));
+        }, 20000);
+      });
+      
       await Promise.race([
         webrtcServiceRef.current.joinRoom(roomId, isVideoEnabled, isAudioEnabled),
-        new Promise<never>((_, reject) => 
-          setTimeout(() => reject(new Error('Waktu habis saat bergabung ke ruangan')), 15000)
-        )
+        joinTimeoutPromise
       ]);
       
       console.log(`VideoCallChat[${joinAttemptId}]: Successfully joined room ${roomId}`);

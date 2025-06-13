@@ -12,12 +12,10 @@
  */
 
 // List of problematic WebSocket URLs to intercept
+// Modified to be more selective and only block specific problematic endpoints
 const BLOCKED_WS_PATTERNS = [
-  'rumahkita.rnggagib.me:3000',
-  'rumahkita.rnggagib.me', // Broader pattern
-  'rnggagib.me',           // Even broader pattern
-  'wss://rumahkita',       // Catch variations of the URL
-  'ws://rumahkita',        // Catch non-secure versions too
+  'rumahkita.rnggagib.me:3000/ws',
+  // Only blocking the specific problematic endpoint, allowing others that might be needed
 ];
 
 // Counter to track blocked connections for logging
