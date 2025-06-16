@@ -464,7 +464,6 @@ export class WebRTCService {
           this.creationAttemptCount = Math.max(0, this.creationAttemptCount - 1);
           console.log(`WebRTCService: Reduced creation attempt counter to ${this.creationAttemptCount}`);
         }, 60000); // Reduce counter after 1 minute
-      }
     }
 
   async joinRoom(roomId: string, isVideoEnabled = true, isAudioEnabled = true): Promise<void> {
@@ -760,6 +759,44 @@ export class WebRTCService {
       await this.signalingService.setUserStatus('in-call');
     } catch (error) {
       console.error('WebRTCService: Failed to start call:', error);
+      this.cleanup(); 
+      throw error;
+    }
+  }
+
+  // New method for direct calls to specific users
+  async startDirectCall(targetUserId: string, isVideoCall = true): Promise<void> {
+    try {
+      this.isInitiator = true;
+      this.connectedPeerId = targetUserId; // Set the peer ID immediately to target the specific user
+      this.updateState({ 
+        isCalling: true, 
+        isConnecting: false, 
+        isConnected: false, 
+        remoteStream: undefined, 
+        localStream: undefined 
+      });
+      console.log(`WebRTCService: Starting direct call to ${targetUserId}, isVideo:`, isVideoCall);
+
+      this.localStream = await navigator.mediaDevices.getUserMedia({
+        video: isVideoCall,
+        audio: true
+      });
+      if (!this.localStream) throw new Error("getUserMedia returned null stream");
+      this.updateState({ localStream: this.localStream });
+      console.log("WebRTCService: Local stream obtained for direct call.");
+
+      // Send directly to the target user
+      await this.signalingService.sendMessage({
+        type: 'call-request',
+        from: this.userId,
+        to: targetUserId,
+        payload: { isVideoCall, callerDisplayName: this.userDisplayName }
+      });
+      console.log(`WebRTCService: Direct call request sent to ${targetUserId}.`);
+      await this.signalingService.setUserStatus('in-call');
+    } catch (error) {
+      console.error('WebRTCService: Failed to start direct call:', error);
       this.cleanup(); 
       throw error;
     }
