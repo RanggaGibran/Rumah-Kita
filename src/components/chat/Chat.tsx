@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { ChatMessage } from '../../types/user';
 import { 
@@ -6,7 +6,7 @@ import {
   subscribeToChatMessages, 
   markMessageAsRead 
 } from '../../services/firebase/chat';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow, isToday, isYesterday, isSameDay } from 'date-fns';
 import { id } from 'date-fns/locale';
 
 interface ChatProps {
@@ -22,15 +22,20 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
   const { currentUser, userProfile } = useAuth();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Auto scroll to bottom when new messages arrive
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+    // Focus the input field when messages load
+    if (!loading && messages.length > 0) {
+      inputRef.current?.focus();
+    }
+  }, [messages, loading, scrollToBottom]);
 
   // Subscribe to real-time messages
   useEffect(() => {
@@ -73,20 +78,32 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
       setSending(false);
     }
   };
-  // Enhanced time formatter using date-fns
-  const formatTime = (timestamp: Date) => {
-    const now = new Date();
+
+  // Enhanced time formatter using date-fns with more human-readable format
+  const formatMessageTime = (timestamp: Date) => {
     const messageDate = new Date(timestamp);
-    const diffDays = Math.floor((now.getTime() - messageDate.getTime()) / (1000 * 60 * 60 * 24));
     
-    if (diffDays === 0) {
-      return format(messageDate, "HH:mm", { locale: id }); // Today: just show time
-    } else if (diffDays === 1) {
-      return `Kemarin ${format(messageDate, "HH:mm", { locale: id })}`; // Yesterday
-    } else if (diffDays < 7) {
-      return format(messageDate, "EEEE, HH:mm", { locale: id }); // Day of week
+    if (isToday(messageDate)) {
+      return format(messageDate, "HH:mm", { locale: id });
+    } else if (isYesterday(messageDate)) {
+      return `Kemarin ${format(messageDate, "HH:mm", { locale: id })}`;
     } else {
-      return format(messageDate, "d MMM, HH:mm", { locale: id }); // Date
+      return format(messageDate, "d MMM", { locale: id });
+    }
+  };
+  
+  // Format date for message groups
+  const formatMessageDate = (timestamp: Date) => {
+    const messageDate = new Date(timestamp);
+    
+    if (isToday(messageDate)) {
+      return 'Hari Ini';
+    } else if (isYesterday(messageDate)) {
+      return 'Kemarin';
+    } else if (new Date().getTime() - messageDate.getTime() < 7 * 24 * 60 * 60 * 1000) {
+      return format(messageDate, "EEEE", { locale: id });
+    } else {
+      return format(messageDate, "d MMMM yyyy", { locale: id });
     }
   };
 
@@ -114,44 +131,74 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
     const index = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
     return colors[index];
   };
-  if (loading) {
+  
+  // Determine if we should show a date separator between messages
+  const shouldShowDateSeparator = (currentMsg: ChatMessage, prevMsg: ChatMessage | null) => {
+    if (!prevMsg) return true; // Always show for first message
+    
+    const currentDate = new Date(currentMsg.timestamp);
+    const prevDate = new Date(prevMsg.timestamp);
+    
+    return !isSameDay(currentDate, prevDate);
+  };  if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-center">
+        <div className="text-center p-5 bg-gradient-to-b from-slate-800/30 to-slate-900/30 rounded-lg border border-indigo-500/20 shadow-lg animate-pulse">
           <div className="inline-block h-8 w-8 rounded-full border-2 border-t-transparent border-indigo-500 animate-spin mb-3"></div>
-          <div className="text-indigo-400 text-sm">Memuat pesan...</div>
+          <div className="text-indigo-300 text-sm font-medium mt-2">Memuat percakapan...</div>
         </div>
       </div>
     );
   }
+  
   return (
-    <div className="flex flex-col h-full rounded-xl overflow-hidden bg-slate-800/30 backdrop-blur-sm border border-slate-700/20 shadow-lg">
-      {/* Header - Simplified modern design */}
-      <div className="p-4 bg-gradient-to-r from-slate-800/80 to-slate-900/80 border-b border-slate-700/30">
+    <div className="flex flex-col h-[calc(100vh-260px)] md:h-[450px] rounded-xl overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700/30 shadow-xl transition-all duration-300 hover:shadow-indigo-500/10">
+      {/* Header - More compact, minimal design */}
+      <div className="p-2.5 bg-gradient-to-r from-indigo-800/30 to-slate-800/30 border-b border-indigo-700/20 backdrop-blur-sm">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-white">Chat</h2>
-            <p className="text-xs text-slate-400 mt-1 flex items-center">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse mr-1.5"></span>
-              <span>{messages.length} {messages.length === 1 ? 'pesan' : 'pesan'} · Online</span>
-            </p>
+          <div className="flex items-center space-x-2.5">
+            <div className="h-7 w-7 rounded-full bg-indigo-600/30 border border-indigo-500/30 flex items-center justify-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-indigo-300" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-sm font-medium text-white">Chat Rumah</h2>
+              <div className="flex items-center text-[10px] text-indigo-200/70">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse mr-1"></span>
+                <span>{messages.length} {messages.length === 1 ? 'pesan' : 'pesan'}</span>
+              </div>
+            </div>
           </div>
-          <button className="text-slate-400 hover:text-slate-200 transition-colors" title="Pengaturan chat">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
-            </svg>
-          </button>
+          <div className="flex space-x-1.5">
+            <button 
+              className="text-indigo-300 hover:text-indigo-100 transition-all p-1 rounded-full hover:bg-indigo-600/20" 
+              title="Refresh chat"
+              onClick={scrollToBottom}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <button className="text-indigo-300 hover:text-indigo-100 transition-all p-1 rounded-full hover:bg-indigo-600/20" title="Pengaturan chat">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
         </div>
-      </div>      {/* Error Message - Simplified modern styling */}
+      </div>
+      
+      {/* Error Message - Minimalist toast-like styling */}
       {error && (
-        <div className="mx-3 my-2 p-2 bg-red-500/10 border border-red-500/20 rounded-md flex items-center gap-2 animate-fade-in text-sm">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+        <div className="mx-2 my-1.5 p-2 bg-red-500/10 border border-red-500/20 rounded-md flex items-center gap-2 text-xs animate-fade-in">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-red-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
           <span className="text-red-200 flex-grow">{error}</span>
           <button 
             onClick={() => setError('')}
-            className="text-red-400 hover:text-red-300 p-1 rounded-full hover:bg-red-500/10"
+            className="text-red-400 hover:text-red-300 p-0.5 rounded-full hover:bg-red-500/10"
             aria-label="Dismiss error"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
@@ -159,136 +206,150 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
             </svg>
           </button>
         </div>
-      )}{/* Messages Container - Simplified modern design */}
+      )}
+      
+      {/* Messages Container - More compact with fixed height */}
       <div 
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto p-3 md:p-5 space-y-3"
-        style={{ maxHeight: 'calc(100vh - 180px)' }}
-      >{messages.length === 0 ? (
+        className="flex-1 overflow-y-auto px-3 py-2 space-y-1 bg-gradient-to-b from-slate-800/50 to-slate-900/50"
+      >
+        {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
-            <div className="text-center p-6 bg-slate-800/40 rounded-2xl border border-slate-700/30 shadow-lg max-w-md">
-              <div className="mb-4 relative">
-                <div className="h-16 w-16 mx-auto bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.959 8.959 0 01-4.906-1.476L3 21l2.524-5.094A8.959 8.959 0 013 12c0-4.418 3.582-8 8-8s8 3.582 8 8z" />
-                  </svg>
-                </div>
+            <div className="text-center p-4 bg-indigo-900/20 rounded-xl border border-indigo-500/20 shadow-inner max-w-xs transform transition-all duration-500 hover:scale-105">
+              <div className="relative">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-9 w-9 mx-auto text-indigo-400 mb-3 animate-[bounce_2s_infinite]" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
+                  <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
+                </svg>
               </div>
-              <h3 className="text-xl font-medium text-white">Belum ada percakapan</h3>
-              <p className="mt-3 text-sm text-slate-300 max-w-xs mx-auto leading-relaxed">
-                Kirim pesan pertama untuk memulai percakapan dengan anggota rumah Anda.
+              <h3 className="text-sm font-medium text-indigo-200">Mulai Percakapan</h3>
+              <p className="mt-2 text-xs text-indigo-300/70">
+                Kirim pesan pertama untuk mulai mengobrol.
               </p>
             </div>
           </div>
         ) : (
           <>
-            {/* Date separators and message grouping logic could be added here */}            {messages.map((message, index) => {
+            {messages.map((message, index) => {
               const isOwnMessage = message.senderId === currentUser?.uid;
-              // Determine if we should show the avatar (only show for first message in a sequence)
-              const showAvatar = index === 0 || 
+              const prevMessage = index > 0 ? messages[index-1] : null;
+              
+              // Show date separator if needed
+              const showDateSeparator = shouldShowDateSeparator(message, prevMessage);
+              
+              // Group messages by sender with smaller gap between same sender messages
+              const showSender = index === 0 || 
                 messages[index-1].senderId !== message.senderId || 
                 new Date(message.timestamp).getTime() - new Date(messages[index-1].timestamp).getTime() > 5 * 60 * 1000;
               
+              // Animation delay based on index for staggered appearance
+              const animationDelay = `${Math.min(index * 0.05, 0.5)}s`;
+              
               return (
-                <div
-                  key={message.id}
-                  className={`flex items-end gap-2 ${isOwnMessage ? 'justify-end' : 'justify-start'} transition-opacity duration-200 opacity-100`}
-                >
-                  {/* Avatar for other users - Only show if it's first in sequence */}
-                  {!isOwnMessage && (
-                    <div className={`flex-shrink-0 ${showAvatar ? 'opacity-100' : 'opacity-0'} h-6 w-6`}>
-                      {showAvatar && (
-                        <div className={`w-6 h-6 rounded-full bg-gradient-to-br ${getAvatarColor(message.senderId)} flex items-center justify-center shadow-md`}>
-                          <span className="text-xs font-medium text-white">
-                            {getUserInitials(message.senderId)}
-                          </span>
-                        </div>
-                      )}
+                <React.Fragment key={message.id}>
+                  {/* Date separator */}
+                  {showDateSeparator && (
+                    <div className="flex justify-center my-2">
+                      <div className="px-2 py-0.5 rounded-full bg-indigo-900/30 border border-indigo-700/30 text-[10px] font-medium text-indigo-200/80 animate-fade-in">
+                        {formatMessageDate(message.timestamp)}
+                      </div>
                     </div>
                   )}
                   
-                  {/* Message bubble */}
                   <div
-                    className={`px-3 py-2 rounded-2xl max-w-[80%] shadow-sm ${
-                      isOwnMessage
-                        ? 'bg-indigo-600 text-white rounded-br-none'
-                        : 'bg-slate-700 text-slate-200 rounded-bl-none'
-                    }`}
+                    className={`flex items-end ${isOwnMessage ? 'justify-end' : 'justify-start'} animate-[fadeIn_0.3s]`}
+                    style={{ 
+                      animationDelay, 
+                      marginTop: showSender ? '8px' : '1px'
+                    }}
                   >
-                    <p className="text-sm leading-relaxed break-words">{message.text}</p>
-                    <div className="flex justify-end items-center gap-1 mt-1">
-                      <span className={`text-[10px] ${isOwnMessage ? 'text-indigo-200' : 'text-slate-400'}`}>
-                        {formatTime(message.timestamp)}
-                      </span>
-                      {isOwnMessage && (
-                        <span className="flex items-center">
-                          {message.read ? (
-                            <svg className="w-3 h-3 text-indigo-200" viewBox="0 0 24 24" fill="none">
-                              <path d="M4.5 12.75L10.5 18.75L19.5 5.25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                            </svg>
-                          ) : (
-                            <svg className="w-3 h-3 text-indigo-200/70" viewBox="0 0 24 24" fill="none">
-                              <path d="M9 12L11 14L15 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                            </svg>
-                          )}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* Avatar for self - Only show if it's first in sequence */}
-                  {isOwnMessage && (
-                    <div className={`flex-shrink-0 ${showAvatar ? 'opacity-100' : 'opacity-0'} h-6 w-6`}>
-                      {showAvatar && (
-                        <div className={`w-6 h-6 rounded-full bg-gradient-to-br ${getAvatarColor(message.senderId)} flex items-center justify-center shadow-md`}>
-                          <span className="text-xs font-medium text-white">
-                            {getUserInitials(message.senderId)}
+                    {/* Small avatar dot for other users - Only show if it's first in sequence */}
+                    {!isOwnMessage && showSender && (
+                      <div className="flex-shrink-0 mr-1">
+                        <div className={`w-3.5 h-3.5 rounded-full bg-gradient-to-br ${getAvatarColor(message.senderId)} flex items-center justify-center ring-1 ring-indigo-400/30 animate-[scaleIn_0.3s]`}>
+                          <span className="text-[7px] font-medium text-white">
+                            {getUserInitials(message.senderId)[0]}
                           </span>
                         </div>
-                      )}
+                      </div>
+                    )}
+                    
+                    {/* Message bubble - More compact and subtle */}
+                    <div
+                      className={`px-2.5 py-1.5 rounded-xl max-w-[75%] ${
+                        isOwnMessage
+                          ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-br-sm'
+                          : 'bg-gradient-to-br from-slate-700 to-slate-800 text-slate-200 rounded-bl-sm'
+                      } transform hover:scale-[1.02] transition-all duration-200 shadow-sm hover:shadow-md`}
+                    >
+                      <p className="text-xs md:text-xs leading-relaxed break-words">{message.text}</p>
+                      <div className="flex justify-end items-center gap-1 mt-0.5">
+                        <span className={`text-[9px] ${isOwnMessage ? 'text-indigo-200/70' : 'text-slate-400/70'}`}>
+                          {formatMessageTime(message.timestamp)}
+                        </span>
+                        {isOwnMessage && message.read && (
+                          <svg className="w-2.5 h-2.5 text-indigo-200/70" viewBox="0 0 24 24" fill="none">
+                            <path d="M4.5 12.75L10.5 18.75L19.5 5.25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
+                    
+                    {/* Small avatar dot for self - Only show if it's first in sequence */}
+                    {isOwnMessage && showSender && (
+                      <div className="flex-shrink-0 ml-1">
+                        <div className={`w-3.5 h-3.5 rounded-full bg-gradient-to-br ${getAvatarColor(message.senderId)} flex items-center justify-center ring-1 ring-indigo-400/30 animate-[scaleIn_0.3s]`}>
+                          <span className="text-[7px] font-medium text-white">
+                            {getUserInitials(message.senderId)[0]}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </React.Fragment>
               );
             })}
+            <div ref={messagesEndRef} className="pt-1" />
           </>
         )}
-        <div ref={messagesEndRef} />
-      </div>      {/* Message Input - Modernized */}
-      <div className="p-3 border-t border-slate-700/30 bg-slate-800/80 backdrop-blur-sm">
-        <form onSubmit={handleSendMessage} className="flex items-center gap-2 bg-slate-700/50 rounded-full px-3 py-1 border border-slate-600/30">
+      </div>
+      
+      {/* Message Input - Modernized and minimalist */}
+      <div className="p-2 border-t border-slate-700/30 bg-slate-800/80 backdrop-blur-sm">
+        <form onSubmit={handleSendMessage} className="flex items-center gap-2 bg-slate-700/50 rounded-full px-2.5 py-0.5 border border-slate-600/30">
           <button
             type="button"
             className="text-slate-400 hover:text-slate-200 transition-colors p-1"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 100-2 1 1 0 000 2zm7-1a1 1 0 11-2 0 1 1 0 012 0zm-7.536 5.879a1 1 0 001.415 0 3 3 0 014.242 0 1 1 0 001.415-1.415 5 5 0 00-7.072 0 1 1 0 000 1.415z" clipRule="evenodd" />
             </svg>
           </button>
           
           <input
+            ref={inputRef}
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder="Ketik pesan..."
-            className="flex-1 bg-transparent text-white border-0 focus:ring-0 placeholder-slate-400 text-sm py-2"
+            className="flex-1 bg-transparent text-white border-0 focus:ring-0 placeholder-slate-400 text-xs py-1.5"
             disabled={sending}
           />
           
           <button
             type="submit"
             disabled={sending || !newMessage.trim()}
-            className={`rounded-full p-2 flex items-center justify-center transition-colors ${
+            className={`rounded-full p-1.5 flex items-center justify-center transition-all ${
               sending || !newMessage.trim() 
                 ? 'bg-slate-600 text-slate-400 cursor-not-allowed' 
-                : 'bg-indigo-600 text-white hover:bg-indigo-500'
+                : 'bg-indigo-600 text-white hover:bg-indigo-500 hover:scale-105'
             }`}
             aria-label="Send message"
           >
             {sending ? (
-              <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent"></div>
+              <div className="animate-spin rounded-full h-3.5 w-3.5 border-1.5 border-current border-t-transparent"></div>
             ) : (
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
                 <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
               </svg>
             )}
@@ -298,5 +359,18 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
     </div>
   );
 };
+
+// Define animations in the component's CSS
+const chatAnimations = `
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  
+  @keyframes scaleIn {
+    from { transform: scale(0); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+`;
 
 export default Chat;
