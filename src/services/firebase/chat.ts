@@ -27,6 +27,7 @@ export const sendChatMessage = async (
   }
 ) => {
   try {
+    // Create base message data without optional fields
     const messageData: ChatMessage = {
       id: uuidv4(),
       homeId,
@@ -34,15 +35,22 @@ export const sendChatMessage = async (
       senderId,
       timestamp: new Date(),
       read: false,
-      replyTo: replyTo,
       emoji: []
     };
 
-    const messageRef = doc(firestore, "messages", messageData.id);
-    await setDoc(messageRef, {
+    // Add replyTo field only if it's provided and not undefined
+    if (replyTo) {
+      messageData.replyTo = replyTo;
+    }
+
+    // Convert to Firestore-compatible object
+    const firestoreData = {
       ...messageData,
       timestamp: Timestamp.fromDate(messageData.timestamp),
-    });
+    };
+
+    const messageRef = doc(firestore, "messages", messageData.id);
+    await setDoc(messageRef, firestoreData);
 
     return { message: messageData, error: null };
   } catch (error: any) {
