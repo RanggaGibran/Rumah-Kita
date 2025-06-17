@@ -23,6 +23,7 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [markingMessageIds, setMarkingMessageIds] = useState<Set<string>>(new Set());
 
   // Auto scroll to bottom when new messages arrive
   const scrollToBottom = useCallback(() => {
@@ -36,7 +37,6 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
       inputRef.current?.focus();
     }
   }, [messages, loading, scrollToBottom]);
-
   // Subscribe to real-time messages
   useEffect(() => {
     if (!homeId || !currentUser) return;
@@ -45,17 +45,26 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
       setMessages(newMessages);
       setLoading(false);
       
-      // Mark messages as read when they arrive
-      newMessages.forEach(message => {
-        if (message.senderId !== currentUser.uid && !message.read) {
-          markMessageAsRead(message.id, currentUser.uid);
+      // Mark messages as read when they are visible
+      // But do this on a slight delay to avoid excessive marking operations
+      const markMessagesAsReadDebounced = setTimeout(() => {
+        const unreadMessages = newMessages.filter(
+          message => message.senderId !== currentUser.uid && !message.read
+        );
+
+        if (unreadMessages.length > 0) {
+          // Mark all unread messages from others as read
+          unreadMessages.forEach(message => {
+            markMessageAsRead(message.id, currentUser.uid);
+          });
         }
-      });
+      }, 1000); // 1 second delay
+
+      return () => clearTimeout(markMessagesAsReadDebounced);
     });
 
     return () => unsubscribe();
   }, [homeId, currentUser]);
-
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -76,6 +85,24 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
       setError('Gagal mengirim pesan: ' + err.message);
     } finally {
       setSending(false);
+    }
+  };
+  
+  // Manual mark as read
+  const handleMarkMessageAsRead = async (messageId: string) => {
+    if (!currentUser || markingMessageIds.has(messageId)) return;
+    
+    try {
+      setMarkingMessageIds(prev => new Set(prev).add(messageId));
+      await markMessageAsRead(messageId, currentUser.uid);
+    } catch (err: any) {
+      console.error('Failed to mark message as read:', err);
+    } finally {
+      setMarkingMessageIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(messageId);
+        return newSet;
+      });
     }
   };
 
@@ -152,21 +179,32 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
   }
   
   return (
-    <div className="flex flex-col h-[calc(100vh-260px)] md:h-[450px] rounded-xl overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700/30 shadow-xl transition-all duration-300 hover:shadow-indigo-500/10">
-      {/* Header - More compact, minimal design */}
+    <div className="flex flex-col h-[calc(100vh-260px)] md:h-[450px] rounded-xl overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700/30 shadow-xl transition-all duration-300 hover:shadow-indigo-500/10">      {/* Header - More compact, minimal design */}
       <div className="p-2.5 bg-gradient-to-r from-indigo-800/30 to-slate-800/30 border-b border-indigo-700/20 backdrop-blur-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
-            <div className="h-7 w-7 rounded-full bg-indigo-600/30 border border-indigo-500/30 flex items-center justify-center">
+            <div className="relative h-7 w-7 rounded-full bg-indigo-600/30 border border-indigo-500/30 flex items-center justify-center">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-indigo-300" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
               </svg>
+              {currentUser && messages.filter(m => !m.read && m.senderId !== currentUser.uid).length > 0 && (
+                <span className="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full border border-slate-800 animate-pulse"></span>
+              )}
             </div>
             <div>
               <h2 className="text-sm font-medium text-white">Chat Rumah</h2>
               <div className="flex items-center text-[10px] text-indigo-200/70">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse mr-1"></span>
-                <span>{messages.length} {messages.length === 1 ? 'pesan' : 'pesan'}</span>
+                {currentUser && messages.filter(m => !m.read && m.senderId !== currentUser.uid).length > 0 ? (
+                  <span className="flex items-center">
+                    <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse mr-1"></span>
+                    <span>{messages.filter(m => !m.read && m.senderId !== currentUser.uid).length} pesan baru</span>
+                  </span>
+                ) : (
+                  <span className="flex items-center">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse mr-1"></span>
+                    <span>{messages.length} {messages.length === 1 ? 'pesan' : 'pesan'}</span>
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -274,23 +312,43 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
                       </div>
                     )}
                     
-                    {/* Message bubble - More compact and subtle */}
-                    <div
-                      className={`px-2.5 py-1.5 rounded-xl max-w-[75%] ${
-                        isOwnMessage
-                          ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-br-sm'
-                          : 'bg-gradient-to-br from-slate-700 to-slate-800 text-slate-200 rounded-bl-sm'
-                      } transform hover:scale-[1.02] transition-all duration-200 shadow-sm hover:shadow-md`}
-                    >
-                      <p className="text-xs md:text-xs leading-relaxed break-words">{message.text}</p>
-                      <div className="flex justify-end items-center gap-1 mt-0.5">
-                        <span className={`text-[9px] ${isOwnMessage ? 'text-indigo-200/70' : 'text-slate-400/70'}`}>
-                          {formatMessageTime(message.timestamp)}
-                        </span>
-                        {isOwnMessage && message.read && (
-                          <svg className="w-2.5 h-2.5 text-indigo-200/70" viewBox="0 0 24 24" fill="none">
-                            <path d="M4.5 12.75L10.5 18.75L19.5 5.25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
+                    {/* Message bubble - More compact and subtle */}                  <div                    className={`px-2.5 py-1.5 rounded-xl max-w-[75%] ${
+                      isOwnMessage
+                        ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-br-sm'
+                        : message.read 
+                          ? 'bg-gradient-to-br from-slate-700 to-slate-800 text-slate-200 rounded-bl-sm'
+                          : 'bg-gradient-to-br from-slate-700 to-slate-700 border-l-2 border-blue-400 text-slate-200 rounded-bl-sm'
+                    } transform hover:scale-[1.02] transition-all duration-200 shadow-sm hover:shadow-md cursor-pointer`}
+                    onDoubleClick={() => !message.read && handleMarkMessageAsRead(message.id)}
+                    title={message.read ? "Pesan sudah dibaca" : "Double-click untuk menandai sebagai dibaca"}
+                  >
+                      <p className="text-xs md:text-xs leading-relaxed break-words">{message.text}</p>                      <div className="flex justify-end items-center gap-1 mt-0.5">
+                        {markingMessageIds.has(message.id) ? (
+                          <span className="text-[9px] text-blue-300 flex items-center">
+                            <svg className="animate-spin -ml-0.5 mr-1 h-2 w-2 text-blue-300" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Menandai...
+                          </span>
+                        ) : (
+                          <span className={`text-[9px] ${isOwnMessage ? 'text-indigo-200/70' : 'text-slate-400/70'}`}>
+                            {formatMessageTime(message.timestamp)}
+                          </span>
+                        )}
+                        {isOwnMessage && !markingMessageIds.has(message.id) && (
+                          <div className="flex items-center" title={message.read ? "Dibaca" : "Terkirim"}>
+                            {message.read ? (
+                              <svg className="w-2.5 h-2.5 text-blue-300" viewBox="0 0 24 24" fill="none">
+                                <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" 
+                                  stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            ) : (
+                              <svg className="w-2.5 h-2.5 text-slate-400/70" viewBox="0 0 24 24" fill="none">
+                                <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
