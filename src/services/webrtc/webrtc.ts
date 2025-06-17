@@ -48,8 +48,7 @@ export class WebRTCService {
   // New room-based properties
   private peerConnections: Map<string, RTCPeerConnection> = new Map();
   private localStream: MediaStream | null = null;
-  private remoteStreams: Map<string, MediaStream> = new Map();
-  private connectionMonitors: Map<string, NodeJS.Timeout> = new Map();
+  private remoteStreams: Map<string, MediaStream> = new Map();  private connectionMonitors: Map<string, NodeJS.Timeout> = new Map();
   
   private signalingService: SignalingService;
   private onExternalStateChange: (state: CallState) => void;
@@ -58,7 +57,18 @@ export class WebRTCService {
   private userId: string; 
   private userDisplayName: string; 
   private unsubscribeSignaling: (() => void) | null = null;
-  private unsubscribeRoom: (() => void) | null = null;  // STUN/TURN servers configuration
+  private unsubscribeRoom: (() => void) | null = null;
+  
+  // Room joining properties
+  private isJoiningRoom = false;
+  private isCreatingRoom = false;
+  private creationAttemptCount = 0;
+  private lastCreationTime = 0;
+  private roomCreationTimeout: NodeJS.Timeout | null = null;
+  private joinRoomAttemptCount = 0;
+  private readonly MAX_JOIN_ATTEMPTS = 2;
+  private joinRoomTimeout: NodeJS.Timeout | null = null;
+  private roomListenerActive = false;// STUN/TURN servers configuration
   private readonly rtcConfiguration: RTCConfiguration = {
     iceServers: [
       // Google's public STUN servers
@@ -89,10 +99,9 @@ export class WebRTCService {
     rtcpMuxPolicy: 'require',
     iceTransportPolicy: 'all' // Try 'relay' if we continue having issues
   };
-  
-  // ICE gathering configuration
+    // ICE gathering configuration
   private readonly iceGatheringTimeout = 10000; // 10 seconds timeout for ICE gathering
-  private readonly iceConnectionTimeout = 15000; // 15 seconds for connection establishment
+  private readonly iceConnectionTimeout = 15000; // 15 seconds for connection establishmentprivate roomCreationTimeout: NodeJS.Timeout | null = null;
   constructor(
     homeId: string,
     userId: string,
@@ -214,15 +223,11 @@ export class WebRTCService {
         }
       }
     });
-  }  // Room-based methods  // Track active room creation and joining to prevent duplicate operations
-  private isCreatingRoom = false;
-  private isJoiningRoom = false;
-  private creationAttemptCount = 0;
+  }  // Room-based methods
+  // Track active room creation and joining to prevent duplicate operations
   private readonly MAX_CREATION_ATTEMPTS = 3;
-  private lastCreationTime = 0;
   private readonly MIN_CREATION_INTERVAL = 5000; // 5 seconds
-  private roomCreationTimeout: NodeJS.Timeout | null = null;
-      async createRoom(roomName?: string, isVideoEnabled = true, isAudioEnabled = true): Promise<string> {
+  async createRoom(roomName?: string, isVideoEnabled = true, isAudioEnabled = true): Promise<string> {
     // Clear any pending timeouts to prevent zombie timeouts
     if (this.roomCreationTimeout) {
       clearTimeout(this.roomCreationTimeout);
@@ -404,10 +409,10 @@ export class WebRTCService {
         2000 // Start with 2s delay
       );
       console.log(`WebRTCService: Successfully joined created room ${roomId}`);
-      
-      // Reset counter on successful creation
+        // Reset counter on successful creation
       this.creationAttemptCount = 0;
-      return roomId;} catch (error) {
+      return roomId;
+    } catch (error) {
       console.error('WebRTCService: Failed to create room:', error);
       
       // Clear any watchdog timeout
@@ -455,58 +460,16 @@ export class WebRTCService {
       const wasCreating = this.isCreatingRoom;
       this.isCreatingRoom = false;
       
-      if (wasCreating) {
-        console.log("WebRTCService: Completed room creation process (success or failure)");
-      }
-      
-      // Gradually reduce creation attempt counter over time      if (this.creationAttemptCount > 0) {
+      if (wasCreating) {        console.log("WebRTCService: Completed room creation process (success or failure)");
+      }        // Gradually reduce creation attempt counter over time
+      if (this.creationAttemptCount > 0) {
         setTimeout(() => {
           this.creationAttemptCount = Math.max(0, this.creationAttemptCount - 1);
           console.log(`WebRTCService: Reduced creation attempt counter to ${this.creationAttemptCount}`);
         }, 60000); // Reduce counter after 1 minute
-    }
-
-  async joinRoom(roomId: string, isVideoEnabled = true, isAudioEnabled = true): Promise<void> {
-    // Prevent multiple simultaneous calls to joinRoom
-    if (this.isJoiningRoom || this.isCreatingRoom || this.internalCallState.inRoom) {
-      console.warn("WebRTCService: Room joining already in progress or already in a room. Ignored duplicate request.");
-      throw new Error("Room joining already in progress or already in a room");
-    }
-    
-    this.isJoiningRoom = true;
-    
-    try {
-      console.log(`WebRTCService: Joining room ${roomId}`);
-      
-      // Get local media stream
-      try {
-        this.localStream = await navigator.mediaDevices.getUserMedia({
-          video: isVideoEnabled,
-          audio: isAudioEnabled
-        });
-      } catch (mediaError) {
-        console.error('WebRTCService: Failed to get user media:', mediaError);
-        throw new Error(`Failed to access camera/microphone: ${mediaError instanceof Error ? mediaError.message : 'unknown error'}`);
       }
-      
-      if (!this.localStream) {
-        throw new Error("WebRTCService: getUserMedia returned null stream");
-      }
-      
-      await this.joinRoomWithStream(roomId, this.userDisplayName, isVideoEnabled, isAudioEnabled, this.localStream);
-      console.log(`WebRTCService: Successfully joined room ${roomId}`);
-      
-    } catch (error) {
-      console.error('WebRTCService: Failed to join room:', error);
-      this.cleanupMedia();
-      throw error;
-    } finally {
-      this.isJoiningRoom = false;
     }
-  }
-  private joinRoomAttemptCount = 0;
-  private readonly MAX_JOIN_ATTEMPTS = 2;
-  private joinRoomTimeout: NodeJS.Timeout | null = null;
+}
 
   private async joinRoomWithStream(
     roomId: string, 
@@ -637,11 +600,8 @@ export class WebRTCService {
       // Still attempt to cleanup local state
       this.cleanupRoom();
       throw error;
-    }
-  }
-    // Keep track of room listener setup to prevent duplicates
-  private roomListenerActive = false;
-  
+    }  }
+    
   private setupRoomListener(roomId: string) {
     // Prevent duplicate listeners for the same room
     if (this.unsubscribeRoom) {
@@ -2057,7 +2017,7 @@ export class WebRTCService {
     
     // Enhanced connection state monitoring
     const enhancedConnectionMonitor = setInterval(() => {
-      if (!this.peerConnections.has(targetUserId)) {
+      if (!this.peerConnections.has(targetUserId) || !peerConnection) {
         clearInterval(enhancedConnectionMonitor);
         clearConnectionTimeout();
         return;
@@ -2461,5 +2421,63 @@ export class WebRTCService {
     
     // Store interval for cleanup
     this.connectionMonitors.set(`${targetUserId}-bandwidth`, bandwidthSamplingInterval);
+  }
+
+  /**
+   * Join an existing room by roomId
+   */
+  async joinRoom(roomIdInput: string, isVideoEnabled = true, isAudioEnabled = true): Promise<void> {
+    // Prevent multiple simultaneous calls to joinRoom
+    if (this.isJoiningRoom || this.isCreatingRoom || this.internalCallState.inRoom) {
+      console.warn("WebRTCService: Room joining already in progress or already in a room. Ignored duplicate request.");
+      throw new Error("Room joining already in progress or already in a room");
+    }
+    
+    this.isJoiningRoom = true;
+    
+    try {
+      console.log(`WebRTCService: Joining room ${roomIdInput}`);
+      
+      // Get local media stream
+      try {
+        this.localStream = await navigator.mediaDevices.getUserMedia({
+          video: isVideoEnabled,
+          audio: isAudioEnabled
+        });
+      } catch (error: any) {
+        console.error('WebRTCService: Failed to get user media:', error);
+        const errorMessage = error?.message || 'unknown error';
+        throw new Error(`Failed to access camera/microphone: ${errorMessage}`);
+      }
+      
+      if (!this.localStream) {
+        throw new Error("Failed to get media stream");
+      }
+      
+      // Update state with local stream
+      this.updateState({
+        isConnecting: true,
+        localStream: this.localStream
+      });
+      
+      // Join the room through signaling service
+      await this.signalingService.joinRoom(roomIdInput, this.userDisplayName, isVideoEnabled, isAudioEnabled);
+      
+      // Set internal state
+      this.updateState({
+        inRoom: true,
+        roomId: roomIdInput,
+        roomName: `Room ${roomIdInput}`
+      });
+      
+      console.log(`WebRTCService: Successfully joined room ${roomIdInput}`);
+    } catch (error) {
+      console.error('WebRTCService: Error joining room:', error);
+      this.cleanupMedia();
+      this.isJoiningRoom = false;
+      throw error;
+    } finally {
+      this.isJoiningRoom = false;
+    }
   }
 }

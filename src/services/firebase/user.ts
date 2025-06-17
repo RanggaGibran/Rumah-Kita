@@ -77,3 +77,33 @@ export const updateUserProfile = async (userId: string, profileData: Partial<Use
     return { success: false, error: error.message };
   }
 };
+
+// Get all member profiles for a specific home
+export const getHomeMemberProfiles = async (homeId: string) => {
+  try {
+    // First get the home to get member IDs
+    const homeRef = doc(firestore, "homes", homeId);
+    const homeDoc = await getDoc(homeRef);
+    
+    if (!homeDoc.exists()) {
+      return { members: [], error: "Home not found" };
+    }
+    
+    const homeData = homeDoc.data();
+    const memberIds = homeData.members || [];
+    
+    // Get each member's profile
+    const memberProfiles: UserProfile[] = [];
+    for (const userId of memberIds) {
+      const { profile, error } = await getUserProfile(userId);
+      if (profile && !error) {
+        memberProfiles.push(profile);
+      }
+    }
+    
+    return { members: memberProfiles, error: null };
+  } catch (error: any) {
+    console.error("Error getting home member profiles:", error);
+    return { members: [], error: error.message };
+  }
+};
