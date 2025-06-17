@@ -131,11 +131,11 @@ const Navbar: React.FC<NavbarProps> = ({ showHomeTabs }) => {
               </Link>
             )}
 
-            {showHomeTabs && (              <>
-                <a href="#" onClick={(e) => handleTabClick('notes', e)} className={getNavLinkClass('notes')}>Notes</a>
+            {showHomeTabs && (              <>                <a href="#" onClick={(e) => handleTabClick('notes', e)} className={getNavLinkClass('notes')}>Notes</a>
                 <a href="#" onClick={(e) => handleTabClick('wishlist', e)} className={getNavLinkClass('wishlist')}>Wishlist</a>
                 <a href="#" onClick={(e) => handleTabClick('call', e)} className={getNavLinkClass('call')}>Komunikasi</a>
                 <a href="#" onClick={(e) => handleTabClick('pets', e)} className={getNavLinkClass('pets')}>Pets</a>
+                <a href="#" onClick={(e) => handleTabClick('chat', e)} className={getNavLinkClass('chat')}>Chat</a>
               </>
             )}
           </div>
@@ -207,11 +207,11 @@ const Navbar: React.FC<NavbarProps> = ({ showHomeTabs }) => {
                 Dashboard
               </Link>
             )}
-              {showHomeTabs && (              <>
-                <a href="#" onClick={(e) => handleTabClick('notes', e)} className={getMobileNavLinkClass('notes')}>Notes</a>
+              {showHomeTabs && (              <>                <a href="#" onClick={(e) => handleTabClick('notes', e)} className={getMobileNavLinkClass('notes')}>Notes</a>
                 <a href="#" onClick={(e) => handleTabClick('wishlist', e)} className={getMobileNavLinkClass('wishlist')}>Wishlist</a>
                 <a href="#" onClick={(e) => handleTabClick('call', e)} className={getMobileNavLinkClass('call')}>Komunikasi</a>
                 <a href="#" onClick={(e) => handleTabClick('pets', e)} className={getMobileNavLinkClass('pets')}>Pets</a>
+                <a href="#" onClick={(e) => handleTabClick('chat', e)} className={getMobileNavLinkClass('chat')}>Chat</a>
               </>
             )}
             {/* Mobile Auth Links */}

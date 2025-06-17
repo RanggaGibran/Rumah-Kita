@@ -7,6 +7,7 @@ import Notes from '../notes/Notes';
 import Wishlist from '../wishlist/Wishlist';
 import VideoCallChat from '../call/VideoCallChat';
 import PetsList from '../pets/PetsList';
+import Chat from '../chat/Chat';
 import HomeSettings from './HomeSettings';
 
 const Dashboard: React.FC = () => {
@@ -206,12 +207,17 @@ const Dashboard: React.FC = () => {
                 className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'call' ? 'bg-purple-600 text-white' : 'bg-slate-700/50 hover:bg-slate-700'}`}
               >
                 Komunikasi
-              </button>
-              <button
+              </button>              <button
                 onClick={() => handleTabChange('pets')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'pets' ? 'bg-purple-600 text-white' : 'bg-slate-700/50 hover:bg-slate-700'}`}
               >
                 Pets
+              </button>
+              <button
+                onClick={() => handleTabChange('chat')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium ${activeTab === 'chat' ? 'bg-purple-600 text-white' : 'bg-slate-700/50 hover:bg-slate-700'}`}
+              >
+                Chat
               </button>
             </div>            <div className="bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl shadow-xl overflow-hidden">
               <div className="p-3 sm:p-4 md:p-6 lg:p-8">
@@ -242,9 +248,12 @@ const Dashboard: React.FC = () => {
                   {activeTab === 'call' && (
                     <VideoCallChat homeId={homeId || ''} />
                   )}
-                  
-                  {activeTab === 'pets' && (
+                    {activeTab === 'pets' && (
                     <PetsList homeId={homeId || ''} />
+                  )}
+                  
+                  {activeTab === 'chat' && (
+                    <Chat homeId={homeId || ''} />
                   )}
                 </div>
               </div>
