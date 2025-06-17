@@ -44,9 +44,15 @@ module.exports = {
           orange: '#f59e0b',
           red: '#ef4444',
         }
-      },
-      fontFamily: {
+      },      fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
+      },
+      animation: {
+        'fade-in': 'fadeIn 0.3s ease-in-out',
+        'scale-in': 'scaleIn 0.3s ease-in-out',
+        'slide-up': 'slideUp 0.3s ease-in-out',
+        'slide-in': 'slideIn 0.3s ease-in-out',
+        'pulse': 'pulse 1.5s infinite',
       },
       boxShadow: {
         'soft': '0 2px 15px -3px rgba(0, 0, 0, 0.07), 0 10px 20px -2px rgba(0, 0, 0, 0.04)',

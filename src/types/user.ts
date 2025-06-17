@@ -56,4 +56,13 @@ export interface ChatMessage {
   timestamp: Date;
   read: boolean;
   readAt?: Date;
+  replyTo?: {
+    id: string;
+    text: string;
+    senderId: string;
+  };
+  emoji?: {
+    type: string;
+    users: string[];
+  }[];
 }

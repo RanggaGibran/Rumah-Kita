@@ -3,6 +3,7 @@ import {
   doc, 
   setDoc, 
   getDocs, 
+  getDoc,
   query, 
   where, 
   orderBy, 
@@ -18,7 +19,12 @@ import { ChatMessage } from "../../types/user";
 export const sendChatMessage = async (
   homeId: string, 
   senderId: string, 
-  text: string
+  text: string,
+  replyTo?: {
+    id: string;
+    text: string;
+    senderId: string;
+  }
 ) => {
   try {
     const messageData: ChatMessage = {
@@ -28,6 +34,8 @@ export const sendChatMessage = async (
       senderId,
       timestamp: new Date(),
       read: false,
+      replyTo: replyTo,
+      emoji: []
     };
 
     const messageRef = doc(firestore, "messages", messageData.id);
@@ -111,6 +119,83 @@ export const markMessageAsRead = async (messageId: string, userId: string) => {
       readBy: userId
     }, { merge: true });
 
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+};
+
+// Add emoji reaction to message
+export const addEmojiReaction = async (messageId: string, userId: string, emojiType: string) => {
+  try {
+    // First get the current emoji reactions
+    const messageRef = doc(firestore, "messages", messageId);
+    const messageDoc = await getDoc(messageRef);
+    
+    if (!messageDoc.exists()) {
+      return { error: "Message not found" };
+    }
+    
+    const messageData = messageDoc.data();
+    let emoji = messageData.emoji || [];
+      // Check if this emoji type already exists
+    const existingEmojiIndex = emoji.findIndex((e: { type: string, users: string[] }) => e.type === emojiType);
+    
+    if (existingEmojiIndex >= 0) {
+      // Add the user if not already included
+      if (!emoji[existingEmojiIndex].users.includes(userId)) {
+        emoji[existingEmojiIndex].users.push(userId);
+      }
+    } else {
+      // Add new emoji type
+      emoji.push({
+        type: emojiType,
+        users: [userId]
+      });
+    }
+    
+    // Update the message
+    await setDoc(messageRef, {
+      emoji: emoji
+    }, { merge: true });
+    
+    return { error: null };
+  } catch (error: any) {
+    return { error: error.message };
+  }
+};
+
+// Remove emoji reaction from message
+export const removeEmojiReaction = async (messageId: string, userId: string, emojiType: string) => {
+  try {
+    // First get the current emoji reactions
+    const messageRef = doc(firestore, "messages", messageId);
+    const messageDoc = await getDoc(messageRef);
+    
+    if (!messageDoc.exists()) {
+      return { error: "Message not found" };
+    }
+    
+    const messageData = messageDoc.data();
+    let emoji = messageData.emoji || [];
+      // Find this emoji type
+    const existingEmojiIndex = emoji.findIndex((e: { type: string, users: string[] }) => e.type === emojiType);
+    
+    if (existingEmojiIndex >= 0) {
+      // Remove the user
+      emoji[existingEmojiIndex].users = emoji[existingEmojiIndex].users.filter((u: string) => u !== userId);
+      
+      // If no users left, remove the emoji type
+      if (emoji[existingEmojiIndex].users.length === 0) {
+        emoji = emoji.filter((e: { type: string, users: string[] }) => e.type !== emojiType);
+      }
+    }
+    
+    // Update the message
+    await setDoc(messageRef, {
+      emoji: emoji
+    }, { merge: true });
+    
     return { error: null };
   } catch (error: any) {
     return { error: error.message };
