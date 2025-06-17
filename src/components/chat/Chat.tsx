@@ -6,6 +6,8 @@ import {
   subscribeToChatMessages, 
   markMessageAsRead 
 } from '../../services/firebase/chat';
+import { format } from 'date-fns';
+import { id } from 'date-fns/locale';
 
 interface ChatProps {
   homeId: string;
@@ -71,22 +73,20 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
       setSending(false);
     }
   };
-
-  // Simplified time formatter
+  // Enhanced time formatter using date-fns
   const formatTime = (timestamp: Date) => {
     const now = new Date();
     const messageDate = new Date(timestamp);
     const diffDays = Math.floor((now.getTime() - messageDate.getTime()) / (1000 * 60 * 60 * 24));
-    const timeStr = messageDate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
     
     if (diffDays === 0) {
-      return timeStr; // Today: just show time
+      return format(messageDate, "HH:mm", { locale: id }); // Today: just show time
     } else if (diffDays === 1) {
-      return `Kemarin ${timeStr}`; // Yesterday
+      return `Kemarin ${format(messageDate, "HH:mm", { locale: id })}`; // Yesterday
     } else if (diffDays < 7) {
-      return messageDate.toLocaleDateString('id-ID', { weekday: 'short' }) + ` ${timeStr}`; // Day of week
+      return format(messageDate, "EEEE, HH:mm", { locale: id }); // Day of week
     } else {
-      return messageDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }) + ` ${timeStr}`; // Date
+      return format(messageDate, "d MMM, HH:mm", { locale: id }); // Date
     }
   };
 
@@ -114,119 +114,120 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
     const index = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % colors.length;
     return colors[index];
   };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="relative">
-          <div className="w-12 h-12 rounded-full border-4 border-t-transparent border-blue-500 animate-spin"></div>
-          <div className="mt-4 text-blue-400 text-sm animate-pulse">Memuat pesan...</div>
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 rounded-full border-2 border-t-transparent border-indigo-500 animate-spin mb-3"></div>
+          <div className="text-indigo-400 text-sm">Memuat pesan...</div>
         </div>
       </div>
     );
   }
-
   return (
-    <div className="flex flex-col h-full card-modern overflow-hidden shadow-hard">
-      {/* Header */}
-      <div className="p-4 border-b border-slate-700/30 glassmorphism bg-slate-900/40">
+    <div className="flex flex-col h-full rounded-xl overflow-hidden bg-slate-800/30 backdrop-blur-sm border border-slate-700/20 shadow-lg">
+      {/* Header - Simplified modern design */}
+      <div className="p-4 bg-gradient-to-r from-slate-800/80 to-slate-900/80 border-b border-slate-700/30">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-gradient bg-gradient-to-r from-blue-400 to-indigo-500">Chat</h2>
-            <p className="text-sm text-slate-400 mt-1">
-              {messages.length} {messages.length === 1 ? 'pesan' : 'pesan'}
+            <h2 className="text-xl font-semibold text-white">Chat</h2>
+            <p className="text-xs text-slate-400 mt-1 flex items-center">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse mr-1.5"></span>
+              <span>{messages.length} {messages.length === 1 ? 'pesan' : 'pesan'} · Online</span>
             </p>
           </div>
-          <div className="bg-slate-800/50 px-3 py-1 rounded-full border border-slate-700/50 flex items-center">
-            <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse mr-2"></span>
-            <span className="text-sm text-slate-300">Online</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Error Message */}
-      {error && (
-        <div className="mx-4 mt-2 p-3 bg-red-900/30 border border-red-500/30 rounded-lg flex items-center justify-between animate-fade-in">
-          <div className="flex items-center">
-            <svg className="w-5 h-5 text-red-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-            </svg>
-            <span className="text-red-200">{error}</span>
-          </div>
-          <button 
-            onClick={() => setError('')}
-            className="text-red-400 hover:text-red-300 transition-colors"
-            aria-label="Dismiss error"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          <button className="text-slate-400 hover:text-slate-200 transition-colors" title="Pengaturan chat">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
             </svg>
           </button>
         </div>
-      )}
-
-      {/* Messages Container */}
+      </div>      {/* Error Message - Simplified modern styling */}
+      {error && (
+        <div className="mx-3 my-2 p-2 bg-red-500/10 border border-red-500/20 rounded-md flex items-center gap-2 animate-fade-in text-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+          <span className="text-red-200 flex-grow">{error}</span>
+          <button 
+            onClick={() => setError('')}
+            className="text-red-400 hover:text-red-300 p-1 rounded-full hover:bg-red-500/10"
+            aria-label="Dismiss error"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+      )}{/* Messages Container - Simplified modern design */}
       <div 
         ref={chatContainerRef}
-        className="flex-1 overflow-y-auto p-4 space-y-4 glassmorphism bg-slate-800/20"
-        style={{ maxHeight: 'calc(100vh - 200px)' }}
-      >
-        {messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-slate-400">
-            <div className="text-center animate-fade-in">
-              <div className="relative w-24 h-24 mx-auto mb-4">
-                <svg className="absolute w-24 h-24 text-blue-900/20 animate-float" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.959 8.959 0 01-4.906-1.476L3 21l2.524-5.094A8.959 8.959 0 013 12c0-4.418 3.582-8 8-8s8 3.582 8 8z" />
-                </svg>
-                <svg className="absolute w-16 h-16 text-indigo-500/20 top-4 left-4 animate-float" style={{animationDelay: '1s'}} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.959 8.959 0 01-4.906-1.476L3 21l2.524-5.094A8.959 8.959 0 013 12c0-4.418 3.582-8 8-8s8 3.582 8 8z" />
-                </svg>
+        className="flex-1 overflow-y-auto p-3 md:p-5 space-y-3"
+        style={{ maxHeight: 'calc(100vh - 180px)' }}
+      >{messages.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center p-6 bg-slate-800/40 rounded-2xl border border-slate-700/30 shadow-lg max-w-md">
+              <div className="mb-4 relative">
+                <div className="h-16 w-16 mx-auto bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-3.582 8-8 8a8.959 8.959 0 01-4.906-1.476L3 21l2.524-5.094A8.959 8.959 0 013 12c0-4.418 3.582-8 8-8s8 3.582 8 8z" />
+                  </svg>
+                </div>
               </div>
-              <h3 className="mt-2 text-xl font-medium text-gradient bg-gradient-to-r from-blue-400 to-indigo-500">Belum ada pesan</h3>
-              <p className="mt-4 text-sm text-slate-400 max-w-xs mx-auto leading-relaxed">
-                Mulai percakapan dengan mengirim pesan pertama kepada anggota rumah Anda.
+              <h3 className="text-xl font-medium text-white">Belum ada percakapan</h3>
+              <p className="mt-3 text-sm text-slate-300 max-w-xs mx-auto leading-relaxed">
+                Kirim pesan pertama untuk memulai percakapan dengan anggota rumah Anda.
               </p>
             </div>
           </div>
         ) : (
           <>
-            {/* Date separators and message grouping logic could be added here */}
-            {messages.map((message) => {
+            {/* Date separators and message grouping logic could be added here */}            {messages.map((message, index) => {
               const isOwnMessage = message.senderId === currentUser?.uid;
+              // Determine if we should show the avatar (only show for first message in a sequence)
+              const showAvatar = index === 0 || 
+                messages[index-1].senderId !== message.senderId || 
+                new Date(message.timestamp).getTime() - new Date(messages[index-1].timestamp).getTime() > 5 * 60 * 1000;
               
               return (
                 <div
                   key={message.id}
-                  className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'} animate-fade-in`}
+                  className={`flex items-end gap-2 ${isOwnMessage ? 'justify-end' : 'justify-start'} transition-opacity duration-200 opacity-100`}
                 >
+                  {/* Avatar for other users - Only show if it's first in sequence */}
                   {!isOwnMessage && (
-                    <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarColor(message.senderId)} flex items-center justify-center mr-2 shadow-soft`}>
-                      <span className="text-xs font-medium text-white">
-                        {getUserInitials(message.senderId)}
-                      </span>
+                    <div className={`flex-shrink-0 ${showAvatar ? 'opacity-100' : 'opacity-0'} h-6 w-6`}>
+                      {showAvatar && (
+                        <div className={`w-6 h-6 rounded-full bg-gradient-to-br ${getAvatarColor(message.senderId)} flex items-center justify-center shadow-md`}>
+                          <span className="text-xs font-medium text-white">
+                            {getUserInitials(message.senderId)}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                   
+                  {/* Message bubble */}
                   <div
-                    className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl shadow-soft transition-all duration-200 ${
+                    className={`px-3 py-2 rounded-2xl max-w-[80%] shadow-sm ${
                       isOwnMessage
-                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:shadow-medium hover:-translate-y-0.5'
-                        : 'glassmorphism bg-slate-800/40 text-slate-200 hover:shadow-medium hover:-translate-y-0.5'
+                        ? 'bg-indigo-600 text-white rounded-br-none'
+                        : 'bg-slate-700 text-slate-200 rounded-bl-none'
                     }`}
                   >
-                    <p className="text-sm leading-relaxed">{message.text}</p>
-                    <div className={`mt-1 text-xs flex items-center justify-between ${
-                      isOwnMessage ? 'text-indigo-200/80' : 'text-slate-400'
-                    }`}>
-                      <span>{formatTime(message.timestamp)}</span>
+                    <p className="text-sm leading-relaxed break-words">{message.text}</p>
+                    <div className="flex justify-end items-center gap-1 mt-1">
+                      <span className={`text-[10px] ${isOwnMessage ? 'text-indigo-200' : 'text-slate-400'}`}>
+                        {formatTime(message.timestamp)}
+                      </span>
                       {isOwnMessage && (
-                        <span className="ml-2 flex items-center">
+                        <span className="flex items-center">
                           {message.read ? (
-                            <svg className="w-3 h-3 ml-1 text-blue-300" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <svg className="w-3 h-3 text-indigo-200" viewBox="0 0 24 24" fill="none">
                               <path d="M4.5 12.75L10.5 18.75L19.5 5.25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
                           ) : (
-                            <svg className="w-3 h-3 ml-1" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <svg className="w-3 h-3 text-indigo-200/70" viewBox="0 0 24 24" fill="none">
                               <path d="M9 12L11 14L15 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
                           )}
@@ -235,11 +236,16 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
                     </div>
                   </div>
                   
+                  {/* Avatar for self - Only show if it's first in sequence */}
                   {isOwnMessage && (
-                    <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${getAvatarColor(message.senderId)} flex items-center justify-center ml-2 shadow-soft`}>
-                      <span className="text-xs font-medium text-white">
-                        {getUserInitials(message.senderId)}
-                      </span>
+                    <div className={`flex-shrink-0 ${showAvatar ? 'opacity-100' : 'opacity-0'} h-6 w-6`}>
+                      {showAvatar && (
+                        <div className={`w-6 h-6 rounded-full bg-gradient-to-br ${getAvatarColor(message.senderId)} flex items-center justify-center shadow-md`}>
+                          <span className="text-xs font-medium text-white">
+                            {getUserInitials(message.senderId)}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -248,30 +254,42 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
           </>
         )}
         <div ref={messagesEndRef} />
-      </div>
-
-      {/* Message Input */}
-      <div className="p-4 border-t border-slate-700/30 bg-slate-800/50">
-        <form onSubmit={handleSendMessage} className="flex space-x-2">
+      </div>      {/* Message Input - Modernized */}
+      <div className="p-3 border-t border-slate-700/30 bg-slate-800/80 backdrop-blur-sm">
+        <form onSubmit={handleSendMessage} className="flex items-center gap-2 bg-slate-700/50 rounded-full px-3 py-1 border border-slate-600/30">
+          <button
+            type="button"
+            className="text-slate-400 hover:text-slate-200 transition-colors p-1"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 100-2 1 1 0 000 2zm7-1a1 1 0 11-2 0 1 1 0 012 0zm-7.536 5.879a1 1 0 001.415 0 3 3 0 014.242 0 1 1 0 001.415-1.415 5 5 0 00-7.072 0 1 1 0 000 1.415z" clipRule="evenodd" />
+            </svg>
+          </button>
+          
           <input
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder="Ketik pesan..."
-            className="flex-1 input-modern shadow-soft focus:ring-2 focus:ring-blue-500/50"
+            className="flex-1 bg-transparent text-white border-0 focus:ring-0 placeholder-slate-400 text-sm py-2"
             disabled={sending}
           />
+          
           <button
             type="submit"
             disabled={sending || !newMessage.trim()}
-            className="px-4 py-2 btn-primary text-white rounded-lg flex items-center justify-center shadow-soft hover:shadow-medium transition-smooth disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-none disabled:hover:transform-none"
+            className={`rounded-full p-2 flex items-center justify-center transition-colors ${
+              sending || !newMessage.trim() 
+                ? 'bg-slate-600 text-slate-400 cursor-not-allowed' 
+                : 'bg-indigo-600 text-white hover:bg-indigo-500'
+            }`}
             aria-label="Send message"
           >
             {sending ? (
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+              <div className="animate-spin rounded-full h-4 w-4 border-2 border-current border-t-transparent"></div>
             ) : (
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M10.3009 13.6948L20.102 3.89668M10.5795 14.1663L12.8019 18.5317C13.339 19.6473 14.8883 19.7545 15.5975 18.7263L21.3961 10.1245C21.9701 9.31173 21.5224 8.21519 20.564 8.02681L3.75756 4.00984C2.70599 3.8036 1.8299 4.88221 2.25233 5.89143L5.87486 15.5202C6.21456 16.3766 7.26272 16.7249 8.02371 16.2485L10.5795 14.1663Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
               </svg>
             )}
           </button>
