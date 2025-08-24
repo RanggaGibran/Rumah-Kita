@@ -9,7 +9,6 @@ import {
   updateDoc, 
   arrayUnion,
   arrayRemove,
-  deleteDoc,
   writeBatch 
 } from "firebase/firestore";
 import { firestore } from "./config";

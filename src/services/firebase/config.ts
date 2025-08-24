@@ -1,7 +1,7 @@
 // Firebase configuration
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore, connectFirestoreEmulator, enableNetwork, disableNetwork } from "firebase/firestore";
+import { getFirestore, enableNetwork, disableNetwork } from "firebase/firestore";
 import { getDatabase, Database } from "firebase/database";
 
 // Your web app's Firebase configuration

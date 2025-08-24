@@ -11,7 +11,6 @@ import {
   orderBy, 
   onSnapshot,
   Timestamp,
-  increment,
   limit as firestoreLimit
 } from "firebase/firestore";
 import { firestore } from "./config";

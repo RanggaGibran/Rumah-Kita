@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
@@ -28,7 +28,7 @@ const HomeSetup: React.FC = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
   
-  const fetchUserHomes = async () => {
+  const fetchUserHomes = useCallback(async () => {
     if (currentUser) {
       setLoading(true);
       const { homes, error } = await getUserHomes(currentUser.uid);
@@ -49,11 +49,11 @@ const HomeSetup: React.FC = () => {
       }
       setLoading(false);
     }
-  };
+  }, [currentUser]);
 
   useEffect(() => {
     fetchUserHomes();
-  }, [currentUser]);
+  }, [fetchUserHomes]);
 
   const handleCreateHome = async (e: React.FormEvent) => {
     e.preventDefault();

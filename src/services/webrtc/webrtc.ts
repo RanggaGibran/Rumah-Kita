@@ -1834,19 +1834,21 @@ export class WebRTCService {
   private async withNetworkRetry<T>(
     operation: () => Promise<T>, 
     maxRetries: number = 3,
-    retryDelay: number = 1000
+    initialRetryDelay: number = 1000
   ): Promise<T> {
     let lastError: any;
+    let delay = initialRetryDelay;
     
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         // Check network status before attempting
         if (!this.checkNetworkConnection()) {
           console.warn(`WebRTCService: Network appears to be offline, waiting before attempt ${attempt + 1}`);
-          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          const currentDelay = delay;
+          await new Promise(resolve => setTimeout(resolve, currentDelay));
           
           // Double the retry delay for next attempt (exponential backoff)
-          retryDelay *= 2;
+          delay *= 2;
           continue;
         }
         
@@ -1864,11 +1866,12 @@ export class WebRTCService {
           !this.checkNetworkConnection();
         
         if (isNetworkError && attempt < maxRetries) {
-          console.warn(`WebRTCService: Network error detected (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${retryDelay}ms`);
-          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          const currentDelay = delay;
+          console.warn(`WebRTCService: Network error detected (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${currentDelay}ms`);
+          await new Promise(resolve => setTimeout(resolve, currentDelay));
           
           // Double the retry delay for next attempt (exponential backoff)
-          retryDelay *= 2;
+          delay *= 2;
         } else {
           // Either not a network error or we've exhausted retries
           throw error;
@@ -2232,20 +2235,7 @@ export class WebRTCService {
         console.log('WebRTCService: Both STUN and TURN not working, using all available servers as fallback');
         // Try all available servers as a last resort
         return iceServers;
-      }else if (!diagnostics.turnConnectivity.success && diagnostics.stunConnectivity.success) {
-        console.log('WebRTCService: TURN not working but STUN is, using only STUN servers');
-        
-        // Filter to only use working STUN servers
-        return iceServers
-          .filter(server => {
-            const urls = typeof server.urls === 'string' ? server.urls : server.urls?.[0] || '';
-            return urls.includes('stun:');
-          });
-      } else if (!diagnostics.stunConnectivity.success && !diagnostics.turnConnectivity.success) {
-        console.log('WebRTCService: Both STUN and TURN not working, using all available servers as fallback');
-        // Try all available servers as a last resort
-        return iceServers;
-      }
+  }
       
       return iceServers;
     } catch (error) {

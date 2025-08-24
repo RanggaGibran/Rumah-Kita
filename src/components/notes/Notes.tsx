@@ -4,7 +4,6 @@ import { useAuth } from '../../contexts/AuthContext';
 import { 
   createNote, 
   subscribeToHomeNotes, 
-  updateNote, 
   deleteNote 
 } from '../../services/firebase/notes';
 import { Note } from '../../types/user';

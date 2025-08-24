@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { WebRTCService, CallState, Participant } from '../../services/webrtc/webrtc';
-import { ChatMessage, UserProfile } from '../../types/user';
+import { WebRTCService, CallState } from '../../services/webrtc/webrtc';
+import { UserProfile } from '../../types/user';
 import { getHomeMemberProfiles } from '../../services/firebase/user';
 import WebRTCDiagnostics from './WebRTCDiagnostics';
 import { DiagnosticResults } from '../../utils/webrtcDiagnostics';
@@ -23,11 +23,10 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [error, setError] = useState('');
-  const [isMobile, setIsMobile] = useState(false);
+  // Removed unused isMobile state
   
   // Direct call state
   const [homeMembers, setHomeMembers] = useState<UserProfile[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   
   const webrtcServiceRef = useRef<WebRTCService | null>(null);
@@ -36,18 +35,9 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
 
   // Diagnostics state
   const [isDiagnosticsModalOpen, setIsDiagnosticsModalOpen] = useState(false);
-  const [diagnosticResults, setDiagnosticResults] = useState<DiagnosticResults | null>(null);
+  // Store diagnostics in parent state isn't used currently; no local storage needed
 
-  // Detect screen size changes
-  useLayoutEffect(() => {
-    const checkIsMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    
-    checkIsMobile();
-    window.addEventListener('resize', checkIsMobile);
-    return () => window.removeEventListener('resize', checkIsMobile);
-  }, []);
+  // Removed unused mobile detection effect
 
   // Service initialization lock to prevent multiple instances
   const [isInitializing, setIsInitializing] = useState(false);
@@ -167,7 +157,6 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
     try {
       setError('');
       if (webrtcServiceRef.current) {
-        setSelectedUserId(targetUserId);
         await webrtcServiceRef.current.startDirectCall(targetUserId, isVideoEnabled);
       }
     } catch (err: any) {
@@ -181,7 +170,6 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
       setError('');
       if (webrtcServiceRef.current) {
         await webrtcServiceRef.current.endCall();
-        setSelectedUserId(null);
       }
     } catch (err: any) {
       setError('Gagal mengakhiri panggilan: ' + err.message);
@@ -211,8 +199,7 @@ const VideoCallChat: React.FC<VideoCallChatProps> = ({ homeId }) => {
   };
 
   // Handle diagnostics modal
-  const handleDiagnosticsComplete = (results: DiagnosticResults) => {
-    setDiagnosticResults(results);
+  const handleDiagnosticsComplete = (_results: DiagnosticResults) => {
     setIsDiagnosticsModalOpen(false);
   };
 

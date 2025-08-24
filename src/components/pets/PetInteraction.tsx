@@ -4,7 +4,6 @@ import type { Pet, PetInteraction } from '../../types/pet';
 import { PetInteractionType } from '../../types/pet';
 import { 
   interactWithPet,
-  getPetInteractions,
   subscribeToPetInteractions,
   deletePet
 } from '../../services/firebase/pets';
@@ -112,7 +111,7 @@ const PetInteractionComponent: React.FC<PetInteractionProps> = ({ pet, onClose }
       // Only include message for "talk" interactions
       const messageToSend = type === 'talk' ? message.trim() : undefined;
       
-      const { success, error: interactionError, response } = await interactWithPet(
+  const { success, error: interactionError } = await interactWithPet(
         pet.id, 
         currentUser.uid, 
         type, 
@@ -187,6 +186,11 @@ const PetInteractionComponent: React.FC<PetInteractionProps> = ({ pet, onClose }
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-xl animate-fade-in">
       {/* Main Modal Container - Modern, borderless, immersive */}
       <div className="relative w-full max-w-3xl mx-auto flex flex-col rounded-3xl shadow-hard bg-gradient-to-br from-slate-900/90 to-slate-950/95 animate-scale-in overflow-hidden" style={{ maxHeight: '92vh', height: '88vh' }}>
+        {error && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-red-500/20 border border-red-400/30 text-red-200 text-sm px-3 py-1.5 rounded-md shadow">
+            {error}
+          </div>
+        )}
         {/* Header - gradient, more open, improved buttons */}
         <div className="flex items-center justify-between px-8 pt-7 pb-4 bg-gradient-to-r from-indigo-900/60 to-violet-900/40">
           <div className="flex items-center gap-5">

@@ -96,8 +96,8 @@ const Wishlist: React.FC<WishlistProps> = ({ homeId }) => {
     );
   }
 
-  const completedItems = items.filter(item => item.completed);
-  const pendingItems = items.filter(item => !item.completed);
+  const completedItems = items.filter(i => i.completed);
+  const pendingItems = items.filter(i => !i.completed);
 
   return (
     <div className="flex flex-col h-full">

@@ -4,7 +4,6 @@ import {
   formatDiagnosticResults, 
   DiagnosticResults,
   ConnectivityResult,
-  ConnectionTestType 
 } from '../../utils/webrtcDiagnostics';
 
 interface WebRTCDiagnosticsProps {

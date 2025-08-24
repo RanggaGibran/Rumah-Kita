@@ -8,7 +8,7 @@ import {
   addEmojiReaction,
   removeEmojiReaction
 } from '../../services/firebase/chat';
-import { format, formatDistanceToNow, isToday, isYesterday, isSameDay } from 'date-fns';
+import { format, isToday, isYesterday, isSameDay } from 'date-fns';
 import { id } from 'date-fns/locale';
 
 interface ChatProps {
@@ -223,13 +223,7 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
     return !isSameDay(currentDate, prevDate);
   };  
   
-  // Get message sender name
-  const getSenderName = (senderId: string) => {
-    if (senderId === currentUser?.uid && userProfile) {
-      return userProfile.displayName || 'Saya';
-    }
-    return 'Anggota Keluarga'; // Default for others until we implement proper user profiles
-  };
+  // Sender name not displayed currently; remove unused helper
   
   // Toggle emoji picker for a message
   const toggleEmojiPicker = (messageId: string | null) => {
@@ -636,18 +630,5 @@ const Chat: React.FC<ChatProps> = ({ homeId }) => {
     </div>
   );
 };
-
-// Define animations in the component's CSS
-const chatAnimations = `
-  @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
-  }
-  
-  @keyframes scaleIn {
-    from { transform: scale(0); opacity: 0; }
-    to { transform: scale(1); opacity: 1; }
-  }
-`;
 
 export default Chat;
