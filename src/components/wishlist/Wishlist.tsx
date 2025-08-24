@@ -39,8 +39,7 @@ const Wishlist: React.FC<WishlistProps> = ({ homeId }) => {
 
   const handleAddItem = async (title: string, description?: string, url?: string) => {
     if (!currentUser) return;
-
-    const { item, error } = await createWishlistItem(homeId, currentUser.uid, title, description, url);
+  const { error } = await createWishlistItem(homeId, currentUser.uid, title, description, url);
     
     if (error) {
       setError('Gagal menambah item: ' + error);
